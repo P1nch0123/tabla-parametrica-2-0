@@ -1,0 +1,1777 @@
+<script setup>
+import DialogCloseBtn from '@/@core/components/DialogCloseBtn.vue'
+import { useApi } from '@/composables/useApi'
+import ArmaInfoEditDialog from '@/pages/components/dialogs/ArmaInfoEditDialog.vue'
+
+// Variable de entorno para evitar problemas de parsing
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+
+// Filtros y selección
+const searchQuery = ref('') // Para el campo de búsqueda
+const selectedStatus = ref(null) // Para el filtro de estado
+const selectedRows = ref([]) // Para filas seleccionadas en la tabla
+const selectAll = ref(false) // Para el checkbox "Seleccionar Todos"
+const isDeleting = ref(false) // Estado de carga para eliminación múltiple
+
+// Control de modales para mensajes
+const showSuccessModal = ref(false)
+const showErrorModal = ref(false)
+const showDeletedModal = ref(false)
+const successMessage = ref('')
+const successTitle = ref('')
+const errorMessage = ref('')
+const errorTitle = ref('')
+
+// Control de modales y formularios
+const isDialogVisible = ref(false) // Controla la visibilidad del modal de edición/creación
+const formMode = ref('create') // Modo del formulario: 'create' o 'edit'
+const selectedArma = ref({}) // Arma seleccionada para editar
+const formErrors = ref({}) // Errores del formulario
+const isDialogVisibleDelete = ref(false)
+const armaIdToDelete = ref(null) // Controla la visibilidad del modal de confirmación de eliminación
+
+// Control para eliminación con opción de deshacer
+const deletedArma = ref(null) // Guarda los datos del arma eliminada
+const isRestoring = ref(false) // Estado de carga para restaurar
+
+// Control para mostrar registros eliminados
+const isDeletedListVisible = ref(false) // Controla la visibilidad del modal de eliminados
+const deletedArmas = ref([]) // Lista de armas eliminadas
+const isFetchingDeleted = ref(false) // Estado de carga para registros eliminados
+const isRestoringFromList = ref(false) // Estado de carga para restaurar desde lista
+
+// Control para destacar registro recién creado
+const recentlyCreatedId = ref(null) // ID del registro recién creado para mostrarlo al principio temporalmente
+
+// Abre el modal de edición y carga los datos del arma seleccionada
+const openEditModal = arma => {
+  // Mapear los datos de snake_case a camelCase para el formulario
+  selectedArma.value = {
+    id: arma.id,
+    armaCod: arma.arma_cod,
+    armaDescripcion: arma.arma_descripcion,
+    armaAbreviacion: arma.arma_abreviacion,
+    armaPosicion: arma.arma_posicion,
+    armaEstado: arma.arma_estado,
+  }
+  formMode.value = 'edit'
+  isDialogVisible.value = true
+}
+
+// Abre el modal de creación con datos limpios
+const openCreateModal = () => {
+  selectedArma.value = {} // Reinicia los datos
+  formMode.value = 'create'
+  formErrors.value = {} // Limpia errores del formulario anterior
+  isDialogVisible.value = true
+}
+
+// Función para manejar el cierre del modal
+const handleDialogClose = () => {
+  isDialogVisible.value = false
+  formErrors.value = {} // Limpia errores cuando se cierra el modal
+}
+
+// Funciones para mostrar mensajes en modales
+const showSuccessMessage = (title, message) => {
+  successTitle.value = title
+  successMessage.value = message
+  showSuccessModal.value = true
+  
+  // Auto-cerrar después de 3 segundos
+  setTimeout(() => {
+    showSuccessModal.value = false
+  }, 3000)
+}
+
+const showErrorMessage = (title, message) => {
+  errorTitle.value = title
+  errorMessage.value = message
+  showErrorModal.value = true
+}
+
+const closeSuccessModal = () => {
+  showSuccessModal.value = false
+}
+
+const closeErrorModal = () => {
+  showErrorModal.value = false
+}
+
+const showDeletedMessage = armaData => {
+  deletedArma.value = { ...armaData }
+  showDeletedModal.value = true
+  
+  // Auto-cerrar después de 30 segundos (más tiempo para que el usuario pueda restaurar)
+  setTimeout(() => {
+    if (showDeletedModal.value) {
+      showDeletedModal.value = false
+      deletedArma.value = null
+    }
+  }, 30000)
+}
+
+const closeDeletedModal = () => {
+  showDeletedModal.value = false
+  deletedArma.value = null
+}
+
+// Maneja el submit del formulario de arma (crear o editar)
+const handleArmaSubmit = async ({ data, mode }) => {
+  formErrors.value = {} // Limpia errores previos
+
+  console.log('📝 handleArmaSubmit - Data recibida:', data)
+  console.log('📝 handleArmaSubmit - Mode:', mode)
+
+  try {
+    // Prepara el payload, mapeando las propiedades camelCase a snake_case para la API
+    const payload = {
+      'arma_cod': data.armaCod || data.arma_cod,
+      'arma_descripcion': data.armaDescripcion || data.arma_descripcion,
+      'arma_abreviacion': data.armaAbreviacion || data.arma_abreviacion,
+      'arma_posicion': Number(data.armaPosicion || data.arma_posicion),
+      'arma_estado': data.armaEstado || data.arma_estado || 'Activo',
+    }
+
+    // Agregar ID para edición
+    if (mode === 'edit' && data.id) {
+      payload.id = data.id
+    }
+
+    console.log('📝 handleArmaSubmit - Data original:', data)
+    console.log('📝 handleArmaSubmit - Payload preparado:', payload)
+
+    let responseData = null
+
+    if (mode === 'create') {
+      // Crea nueva arma
+      console.log('📝 Enviando petición POST a /armas')
+      
+      const response = await useApi('/armas', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+      
+      console.log('📝 Respuesta de creación:', { responseData: response.data, error: response.error, statusCode: response.statusCode })
+      
+      if (response.error.value) {
+        throw response.error.value
+      }
+      
+      responseData = response.data
+      showSuccessMessage('✅ Operación Exitosa', 'Arma creada correctamente')
+    } else if (mode === 'edit') {
+      // Edita arma existente
+      console.log(`📝 Enviando petición PUT a /armas/${data.id}`)
+      
+      const response = await useApi(`/armas/${data.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+      
+      console.log('📝 Respuesta de edición:', { responseData: response.data, error: response.error, statusCode: response.statusCode })
+      console.log('📝 Payload enviado:', payload)
+      
+      if (response.error.value) {
+        throw response.error.value
+      }
+      
+      responseData = response.data
+      showSuccessMessage('✅ Operación Exitosa', 'Arma actualizada correctamente')
+    }
+
+    // Muestra mensaje de éxito y recarga la tabla
+    // (El mensaje ya se mostró arriba con showSuccessMessage)
+    
+    // Cerrar el modal
+    isDialogVisible.value = false
+    
+    // Actualizar solo este registro en la tabla sin recargar
+    if (mode === 'create') {
+      // Para crear, agregar el nuevo registro si viene en la respuesta
+      if (responseData.value?.data) {
+        const newArma = responseData.value.data
+        
+        updateArmaInTable(newArma, true) // Indicar que es un registro nuevo
+        
+        // Marcar como recién creado para mostrarlo al principio temporalmente
+        recentlyCreatedId.value = newArma.id
+        
+        // Ir a la primera página para mostrar el nuevo registro
+        page.value = 1
+        
+        // Quitar el destacado después de 5 segundos para que vuelva al orden normal
+        setTimeout(() => {
+          recentlyCreatedId.value = null
+        }, 5000)
+      } else {
+        // Si no viene en la respuesta, hacer una recarga mínima después de un delay
+        setTimeout(async () => {
+          await fetchArmas(false) // No preservar estado para mostrar el nuevo registro al principio
+          page.value = 1 // Ir a la primera página
+          console.log(`✅ ${mode === 'create' ? 'Creación' : 'Edición'} completada y datos recargados`)
+        }, 500)
+      }
+    } else if (mode === 'edit') {
+      // Para editar, actualizar el registro existente
+      const updatedArma = responseData.value?.data || { ...payload, id: data.id }
+      
+      updateArmaInTable(updatedArma, false) // No es un registro nuevo
+    }
+    
+    console.log(`✅ ${mode === 'create' ? 'Creación' : 'Edición'} completada exitosamente sin recargar tabla`)
+  } catch (error) {
+    // Manejo de errores
+    console.error('❌ Error al guardar:', error)
+    console.error('❌ Error completo:', JSON.stringify(error, null, 2))
+    console.log('❌ Errores detallados:', error?.data?.errors)
+    
+    // Si hay errores de validación de Laravel, mostrarlos
+    if (error?.data?.errors) {
+      formErrors.value = error.data.errors
+      console.error('❌ Errores de validación:', error.data.errors)
+    } else {
+      formErrors.value = {}
+    }
+    
+    // Mostrar el error específico del servidor
+    if (error?.data?.message) {
+      showErrorMessage('❌ Error del Servidor', error.data.message)
+    } else if (error?.message) {
+      showErrorMessage('❌ Error de Operación', error.message)
+    } else {
+      showErrorMessage('❌ Error Desconocido', 'No se pudieron guardar los datos')
+    }
+    
+    console.error('❌ Operación fallida:', {
+      mode,
+      payload,
+      error: error?.data || error,
+    })
+  }
+}
+
+// --- Opciones de la tabla ---
+const itemsPerPage = ref(10) // Cantidad de filas por página
+const page = ref(1) // Página actual
+const sortBy = ref() // Columna para ordenar
+const orderBy = ref() // Orden (asc/desc)
+
+// Actualiza las opciones de la tabla (orden, página, etc.)
+const updateOptions = options => {
+  // Limpiar el ID recién creado si se cambia el ordenamiento o la página
+  if (recentlyCreatedId.value) {
+    recentlyCreatedId.value = null
+  }
+  
+  sortBy.value = options.sortBy[0]?.key
+  orderBy.value = options.sortBy[0]?.order
+}
+
+// --- Definición de columnas de la tabla ---
+const headers = [
+  { title: '', key: 'data-table-select', sortable: false },
+  { title: 'ID', key: 'id' },
+  { title: 'Código', key: 'codigo' },
+  { title: 'Descripción', key: 'descripcion' },
+  { title: 'Abreviatura', key: 'abreviatura' },
+  { title: 'Posición', key: 'posicion' },
+  { title: 'Estado', key: 'status' },
+  { title: 'Acciones', key: 'actions', sortable: false },
+]
+
+// --- Obtención de datos de armas desde la API ---
+const armaData = ref(null)
+const apiError = ref(null)
+const isFetching = ref(false)
+
+// Función para cargar armas con fetch directo para mejor control
+const fetchArmas = async (preserveState = false) => {
+  isFetching.value = true
+  apiError.value = null
+  
+  // Guardar el estado actual si se solicita preservarlo
+  const currentSortBy = preserveState ? sortBy.value : null
+  const currentOrderBy = preserveState ? orderBy.value : null
+  const currentPage = preserveState ? page.value : null
+  
+  try {
+    // Agregar timestamp para evitar caché
+    const timestamp = Date.now()
+    const url = `${API_BASE_URL}/armas?_t=${timestamp}`
+    
+    console.log('Iniciando petición a:', url)
+    
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 segundos timeout
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+      },
+      signal: controller.signal,
+    })
+    
+    clearTimeout(timeoutId)
+    
+    console.log('Respuesta recibida:', response.status, response.statusText)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+    
+    const data = await response.json()
+
+    console.log('Datos recibidos:', data)
+    
+    armaData.value = data
+    apiError.value = null
+    
+    // Restaurar el estado si se solicitó preservarlo
+    if (preserveState) {
+      if (currentSortBy) sortBy.value = currentSortBy
+      if (currentOrderBy) orderBy.value = currentOrderBy
+      if (currentPage) page.value = currentPage
+    }
+    
+  } catch (error) {
+    console.error('Error en fetchArmas:', error)
+    
+    if (error.name === 'AbortError') {
+      apiError.value = '⏰ La petición fue cancelada (timeout de 30 segundos)'
+    } else if (error.message.includes('fetch')) {
+      apiError.value = '🌐 Error de conexión: No se puede conectar con el servidor'
+    } else {
+      apiError.value = error.message || '❌ Error desconocido'
+    }
+    
+    armaData.value = null
+  } finally {
+    isFetching.value = false
+  }
+}
+
+// Ejecutar la carga inicial
+onMounted(async () => {
+  try {
+    console.log('Iniciando carga de armas...')
+    console.log('URL de la API:', `${API_BASE_URL}/armas`)
+    await fetchArmas()
+    console.log('Carga de armas completada')
+  } catch (error) {
+    console.error('Error al cargar armas:', error)
+    console.error('Error completo:', JSON.stringify(error, null, 2))
+    
+    // Mostrar error más específico
+    if (error?.message) {
+      console.error('Mensaje de error:', error.message)
+    }
+    if (error?.response) {
+      console.error('Respuesta del servidor:', error.response)
+    }
+    
+    // Si es un error de timeout o abort, intentar nuevamente después de un delay
+    if (error?.message?.includes('aborted') || error?.message?.includes('timeout')) {
+      console.log('Reintentando carga en 3 segundos...')
+      setTimeout(async () => {
+        try {
+          await fetchArmas(true) // Preservar estado en reintentos
+          console.log('Recarga exitosa')
+        } catch (retryError) {
+          console.error('Error en reintento:', retryError)
+        }
+      }, 3000)
+    }
+  }
+})
+
+// Debug para ver qué datos estamos recibiendo
+watchEffect(() => {
+  console.log('ArmaData:', armaData.value)
+  console.log('API Error:', apiError.value)
+  console.log('Is Fetching:', isFetching.value)
+})
+
+// Limpiar el ID recién creado cuando se cambie la búsqueda o el filtro
+watch([searchQuery, selectedStatus], () => {
+  if (recentlyCreatedId.value) {
+    recentlyCreatedId.value = null
+  }
+})
+
+// Watcher para limpiar selección cuando se cambie de página o filtros
+watch([page, searchQuery, selectedStatus], () => {
+  selectedRows.value = []
+  selectAll.value = false
+})
+
+// Función de prueba para verificar rutas de restauración
+const testRestoreRoutes = async (armaId = 1) => {
+  console.log('🧪 Iniciando prueba de rutas de restauración...')
+  
+  const routes = [
+    `/armas/restore/${armaId}`,
+    `/armas/${armaId}/restore`, 
+    `/armas/restaurar/${armaId}`,
+    `/armas/${armaId}/restaurar`,
+  ]
+  
+  const methods = ['POST', 'PUT', 'PATCH']
+  
+  for (const route of routes) {
+    for (const method of methods) {
+      try {
+        console.log(`🧪 Probando: ${method} ${route}`)
+        
+        const response = await fetch(`${API_BASE_URL}${route}`, {
+          method,
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        })
+        
+        console.log(`✅ ${method} ${route} - Status: ${response.status}`)
+        if (response.status !== 404 && response.status !== 405) {
+          console.log(`🎯 Ruta funcional encontrada: ${method} ${route}`)
+          break
+        }
+      } catch (error) {
+        console.log(`❌ ${method} ${route} - Error: ${error.message}`)
+      }
+    }
+  }
+}
+
+// Función de prueba para verificar rutas de eliminados
+const testDeletedRoutes = async () => {
+  console.log('🧪 Iniciando prueba de rutas de eliminados...')
+  
+  const routes = [
+    '/armas/deleted',
+    '/armas/eliminados', 
+    '/armas/deleted/list',
+    '/armas/eliminados/list',
+    '/armas?deleted=true',
+    '/armas?eliminados=true',
+  ]
+  
+  for (const route of routes) {
+    try {
+      console.log(`🧪 Probando: GET ${route}`)
+      
+      const response = await fetch(`${API_BASE_URL}${route}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      })
+      
+      console.log(`✅ GET ${route} - Status: ${response.status}`)
+      
+      if (response.status !== 404) {
+        console.log(`🎯 Ruta funcional encontrada: GET ${route}`)
+        
+        try {
+          const data = await response.json()
+
+          console.log('📄 Respuesta:', data)
+        } catch (jsonError) {
+          console.log('📄 Error al parsear JSON:', jsonError)
+
+          const text = await response.text()
+
+          console.log('📄 Respuesta como texto:', text)
+        }
+        break
+      }
+    } catch (error) {
+      console.log(`❌ GET ${route} - Error: ${error.message}`)
+    }
+  }
+}
+
+// Función de reintento manual
+const retryLoadData = async () => {
+  try {
+    console.log('Reintentando carga manual...')
+    await fetchArmas(true) // Preservar el estado actual
+    console.log('Recarga manual exitosa')
+    showSuccessMessage('✅ Conexión Restaurada', 'Los datos se han cargado correctamente')
+  } catch (error) {
+    console.error('Error en recarga manual:', error)
+    showErrorMessage('❌ Error de Conexión', 'No se pudo restablecer la conexión con el servidor')
+  }
+}
+
+// --- Computed para filtrar y paginar localmente los datos ---
+const armas = computed(() => {
+  // Verificar si hay datos antes de procesar
+  if (!armaData.value || !armaData.value.data) {
+    console.log('No hay datos de armas disponibles')
+    
+    return []
+  }
+
+  let allData = armaData.value.data ?? []
+
+  // Filtro por estado (Activo/Inactivo)
+  if (selectedStatus.value) {
+    allData = allData.filter(item => item.arma_estado === selectedStatus.value)
+  }
+
+  // Filtro local por búsqueda
+  if (searchQuery.value) {
+    allData = allData.filter(item =>
+      (item.arma_cod ?? '').toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      (item.arma_descripcion ?? '').toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      (item.arma_abreviacion ?? '').toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      (item.arma_posicion ?? '').toString().includes(searchQuery.value),
+    )
+  }
+
+  // Aplicar ordenamiento si hay una columna seleccionada
+  if (sortBy.value && orderBy.value) {
+    allData = allData.sort((a, b) => {
+      let aValue, bValue
+
+      // Mapear las keys a los nombres de columnas reales en la base de datos
+      switch (sortBy.value) {
+      case 'id':
+        aValue = a.id
+        bValue = b.id
+        break
+      case 'codigo':
+        aValue = a.arma_cod ?? ''
+        bValue = b.arma_cod ?? ''
+        break
+      case 'descripcion':
+        aValue = a.arma_descripcion ?? ''
+        bValue = b.arma_descripcion ?? ''
+        break
+      case 'abreviatura':
+        aValue = a.arma_abreviacion ?? ''
+        bValue = b.arma_abreviacion ?? ''
+        break
+      case 'posicion':
+        aValue = Number(a.arma_posicion) || 0
+        bValue = Number(b.arma_posicion) || 0
+        break
+      case 'status':
+        aValue = a.arma_estado ?? ''
+        bValue = b.arma_estado ?? ''
+        break
+      default:
+        return 0
+      }
+
+      // Ordenamiento para números
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return orderBy.value === 'asc' ? aValue - bValue : bValue - aValue
+      }
+
+      // Ordenamiento para strings (convertir a minúsculas para comparación insensible a mayúsculas)
+      const aStr = String(aValue).toLowerCase()
+      const bStr = String(bValue).toLowerCase()
+
+      if (orderBy.value === 'asc') {
+        return aStr.localeCompare(bStr)
+      } else {
+        return bStr.localeCompare(aStr)
+      }
+    })
+  } else {
+    // Ordenamiento por defecto: ID ascendente (del primero al último)
+    allData = allData.sort((a, b) => {
+      // Si hay un registro recién creado, mostrarlo al principio temporalmente
+      if (recentlyCreatedId.value) {
+        if (a.id === recentlyCreatedId.value) return -1
+        if (b.id === recentlyCreatedId.value) return 1
+      }
+      
+      // Ordenamiento normal por ID ascendente
+      return (a.id || 0) - (b.id || 0)
+    })
+  }
+
+  // Paginación local
+  const start = (page.value - 1) * itemsPerPage.value
+  const end = itemsPerPage.value === -1 ? allData.length : start + itemsPerPage.value
+
+  return allData.slice(start, end)
+})
+
+// --- Computed para el total de armas (después del filtro, antes de paginar) ---
+const totalArmas = computed(() => {
+  let allData = armaData.value?.data ?? []
+  
+  // Filtro por estado (Activo/Inactivo)
+  if (selectedStatus.value) {
+    allData = allData.filter(item => item.arma_estado === selectedStatus.value)
+  }
+  
+  // Filtro por búsqueda
+  if (searchQuery.value) {
+    allData = allData.filter(item =>
+      (item.arma_cod ?? '').toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      (item.arma_descripcion ?? '').toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      (item.arma_abreviacion ?? '').toLowerCase().includes(searchQuery.value.toLowerCase()),
+    )
+  }
+
+  return allData.length
+})
+
+// --- Elimina un arma ---
+const deleteArma = async id => {
+  try {
+    // Buscar los datos del arma antes de eliminarla
+    const armaToDelete = armaData.value?.data?.find(arma => arma.id === id)
+    
+    console.log('Eliminando arma con ID:', id)
+    console.log('Datos del arma a eliminar:', armaToDelete)
+    
+    const response = await useApi(`/armas/${id}`, { method: 'DELETE' })
+    
+    console.log('Respuesta de eliminación:', response)
+
+    // Guardar los datos del arma eliminada para poder restaurarla
+    if (armaToDelete) {
+      console.log('Arma guardada para restaurar:', armaToDelete)
+      
+      // Mostrar modal de eliminación en lugar de alerta
+      showDeletedMessage(armaToDelete)
+    }
+
+    // Elimina de la selección si estaba seleccionada
+    const index = selectedRows.value.findIndex(row => row === id)
+    if (index !== -1)
+      selectedRows.value.splice(index, 1)
+
+    // Remover el registro de la tabla sin recargar
+    removeArmaFromTable(id)
+    
+    console.log('Eliminación completada exitosamente sin recargar tabla')
+    
+  } catch (error) {
+    console.error('Error al eliminar arma:', error)
+    console.error('Error completo:', JSON.stringify(error, null, 2))
+    
+    // Mostrar mensaje de error al usuario
+    showErrorMessage('❌ Error de Eliminación', `No se pudo eliminar el registro: ${error.message || 'Error desconocido'}`)
+  }
+}
+
+const openDeleteDialog = id => {
+  // Buscar el arma que se va a eliminar para mostrar su información
+  const armaToDelete = armaData.value?.data?.find(arma => arma.id === id)
+  if (armaToDelete) {
+    deletedArma.value = { ...armaToDelete } // Pre-cargar los datos
+  }
+  
+  armaIdToDelete.value = id
+  isDialogVisibleDelete.value = true
+}
+
+const confirmDeleteArma = async () => {
+  await deleteArma(armaIdToDelete.value)
+  isDialogVisibleDelete.value = false
+}
+
+// Función para actualizar un registro específico en la tabla sin recargar todo
+const updateArmaInTable = (updatedArma, isNewRecord = false) => {
+  if (!armaData.value?.data) return
+  
+  const index = armaData.value.data.findIndex(arma => arma.id === updatedArma.id)
+  if (index !== -1) {
+    // Actualizar el registro existente manteniendo la estructura
+    armaData.value.data[index] = { ...armaData.value.data[index], ...updatedArma }
+    console.log('✅ Registro actualizado en tabla sin recargar:', updatedArma)
+  } else {
+    // Si no existe, agregarlo al final de la lista (el ordenamiento se maneja en el computed)
+    armaData.value.data.push(updatedArma)
+    console.log('✅ Registro agregado a la tabla sin recargar:', updatedArma)
+  }
+}
+
+// Función para remover un registro específico de la tabla sin recargar todo
+const removeArmaFromTable = armaId => {
+  if (!armaData.value?.data) return
+  
+  const index = armaData.value.data.findIndex(arma => arma.id === armaId)
+  if (index !== -1) {
+    armaData.value.data.splice(index, 1)
+    console.log('✅ Registro removido de tabla sin recargar:', armaId)
+  }
+}
+
+// Función para restaurar el arma eliminada
+const restoreArma = async () => {
+  if (!deletedArma.value) {
+    console.error('No hay datos del arma eliminada para restaurar')
+    
+    return
+  }
+  
+  // Guardar la referencia del arma antes de que pueda ser limpiada
+  const armaToRestore = { ...deletedArma.value }
+  
+  console.log('🔄 Iniciando restauración del arma:', armaToRestore)
+  isRestoring.value = true
+  
+  try {
+    console.log('🔄 Llamando al endpoint de restauración...')
+
+    // Usar la ruta definida en el backend: POST /armas/{id}/restore
+    const routeUsed = `/armas/${armaToRestore.id}/restore`
+
+    console.log('🔄 Usando ruta:', routeUsed)
+    
+    const { data: responseData, error } = await useApi(routeUsed, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    })
+
+    if (error.value) {
+      throw error.value
+    }
+
+    console.log('🔄 Respuesta de restauración:', responseData.value)
+
+    // Actualizar solo este registro en la tabla sin recargar
+    const restoredArma = responseData.value?.data || armaToRestore
+    
+    updateArmaInTable(restoredArma, false) // No es un registro nuevo, es una restauración
+
+    // Mostrar mensaje de éxito usando la referencia guardada
+    showSuccessMessage('✅ Restauración Exitosa', `Arma "${armaToRestore.arma_descripcion}" restaurada correctamente`)
+
+    // Ocultar el modal de eliminación
+    showDeletedModal.value = false
+    deletedArma.value = null
+    
+    console.log('✅ Restauración completada exitosamente sin recargar tabla')
+    
+  } catch (error) {
+    console.error('❌ Error al restaurar arma:', error)
+    console.error('❌ Error completo:', JSON.stringify(error, null, 2))
+    
+    // Si hay errores de validación, mostrarlos
+    if (error?.data?.errors) {
+      console.error('❌ Errores de validación:', error.data.errors)
+    }
+    
+    // Mostrar mensaje de error al usuario con más detalle
+    let errorMessage = 'Error desconocido'
+    if (error?.data?.message) {
+      errorMessage = error.data.message
+    } else if (error?.message) {
+      errorMessage = error.message
+    } else if (typeof error === 'string') {
+      errorMessage = error
+    }
+    
+    // Cambiar a mostrar error en lugar de success
+    showErrorMessage('❌ Error de Restauración', `No se pudo restaurar el arma: ${errorMessage}`)
+    
+  } finally {
+    isRestoring.value = false
+  }
+}
+
+// Función para cerrar el modal de eliminación sin restaurar
+const dismissDeletedAlert = () => {
+  showDeletedModal.value = false
+  deletedArma.value = null
+}
+
+// --- Funciones para selección múltiple ---
+
+// Función para manejar la selección de todos los elementos
+const toggleSelectAll = () => {
+  if (selectAll.value) {
+    // Seleccionar todos los elementos visibles en la página actual
+    selectedRows.value = armas.value.map(arma => arma.id)
+  } else {
+    // Deseleccionar todos
+    selectedRows.value = []
+  }
+}
+
+// Función para manejar la selección individual
+const toggleRowSelection = armaId => {
+  const index = selectedRows.value.findIndex(id => id === armaId)
+  if (index === -1) {
+    // Agregar a la selección
+    selectedRows.value.push(armaId)
+  } else {
+    // Remover de la selección
+    selectedRows.value.splice(index, 1)
+  }
+  
+  // Actualizar el estado del checkbox "Seleccionar Todos"
+  updateSelectAllState()
+}
+
+// Función para actualizar el estado del checkbox "Seleccionar Todos"
+const updateSelectAllState = () => {
+  const currentPageIds = armas.value.map(arma => arma.id)
+  const selectedInCurrentPage = selectedRows.value.filter(id => currentPageIds.includes(id))
+  
+  if (selectedInCurrentPage.length === 0) {
+    selectAll.value = false
+  } else if (selectedInCurrentPage.length === currentPageIds.length) {
+    selectAll.value = true
+  } else {
+    selectAll.value = false // Estado indeterminado (parcialmente seleccionado)
+  }
+}
+
+// Función para verificar si una fila está seleccionada
+const isRowSelected = armaId => {
+  return selectedRows.value.includes(armaId)
+}
+
+// Función para eliminar todos los elementos seleccionados
+const deleteSelectedArmas = async () => {
+  if (selectedRows.value.length === 0) {
+    showErrorMessage('⚠️ Sin Selección', 'No hay registros seleccionados para eliminar')
+    
+    return
+  }
+
+  // Confirmar la eliminación
+  const confirmResult = await new Promise(resolve => {
+    // Crear modal de confirmación personalizado
+    const selectedCount = selectedRows.value.length
+    const confirmMessage = `¿Estás seguro de que deseas eliminar ${selectedCount} registro${selectedCount > 1 ? 's' : ''}?`
+    
+    // Por ahora usamos confirm, pero podrías crear un modal más elegante
+    resolve(confirm(confirmMessage))
+  })
+
+  if (!confirmResult) return
+
+  isDeleting.value = true
+  
+  const errors = []
+  const successes = []
+  const selectedIds = [...selectedRows.value] // Copia de los IDs seleccionados
+
+  try {
+    // Eliminar uno por uno para tener mejor control de errores
+    for (const armaId of selectedIds) {
+      try {
+        console.log(`🗑️ Eliminando arma ID: ${armaId}`)
+        
+        const response = await useApi(`/armas/${armaId}`, { method: 'DELETE' })
+        
+        if (response.error.value) {
+          throw response.error.value
+        }
+
+        // Remover de la tabla local sin recargar
+        removeArmaFromTable(armaId)
+        successes.push(armaId)
+        
+        console.log(`✅ Arma ${armaId} eliminada exitosamente`)
+        
+      } catch (error) {
+        console.error(`❌ Error al eliminar arma ${armaId}:`, error)
+        errors.push({ id: armaId, error: error.message || 'Error desconocido' })
+      }
+    }
+
+    // Limpiar selección después de procesar
+    selectedRows.value = []
+    selectAll.value = false
+
+    // Mostrar resultado según el estado de la operación
+    if (errors.length === 0) {
+      showSuccessMessage(
+        '✅ Eliminación Completada', 
+        `Se eliminaron exitosamente ${successes.length} registro${successes.length > 1 ? 's' : ''}`,
+      )
+    } else if (successes.length === 0) {
+      showErrorMessage(
+        '❌ Error en Eliminación', 
+        `No se pudo eliminar ningún registro. Errores: ${errors.length}`,
+      )
+    } else {
+      showErrorMessage(
+        '⚠️ Eliminación Parcial', 
+        `Se eliminaron ${successes.length} registros exitosamente, pero ${errors.length} fallaron`,
+      )
+    }
+
+  } catch (error) {
+    console.error('❌ Error general en eliminación múltiple:', error)
+    showErrorMessage('❌ Error General', 'Ocurrió un error durante la eliminación múltiple')
+  } finally {
+    isDeleting.value = false
+  }
+}
+
+// Función para obtener la lista de registros eliminados
+const fetchDeletedArmas = async () => {
+  isFetchingDeleted.value = true
+  
+  try {
+    console.log('🗑️ Obteniendo lista de armas eliminadas...')
+    
+    // Usar la ruta definida en el backend: GET /armas/deleted
+    const routeUsed = '/armas/deleted'
+
+    console.log('🗑️ Usando ruta:', routeUsed)
+    console.log('🗑️ URL completa:', `${API_BASE_URL}${routeUsed}`)
+    
+    const { data: responseData, error } = await useApi(routeUsed, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+    })
+
+    console.log('🗑️ Error de la petición:', error.value)
+    console.log('🗑️ Datos de respuesta:', responseData.value)
+
+    if (error.value) {
+      console.error('🗑️ Error en la petición:', error.value)
+      throw error.value
+    }
+
+    console.log('🗑️ Respuesta de eliminados:', responseData.value)
+
+    // Verificar si hay datos en la respuesta
+    if (responseData.value?.data) {
+      deletedArmas.value = responseData.value.data
+      console.log('🗑️ Datos asignados desde responseData.value.data:', deletedArmas.value)
+    } else if (Array.isArray(responseData.value)) {
+      deletedArmas.value = responseData.value
+      console.log('🗑️ Datos asignados desde responseData.value (array):', deletedArmas.value)
+    } else {
+      deletedArmas.value = []
+      console.log('🗑️ No se encontraron datos, asignando array vacío')
+    }
+    
+    console.log('🗑️ Armas eliminadas cargadas:', deletedArmas.value.length)
+    console.log('🗑️ Contenido de deletedArmas.value:', deletedArmas.value)
+    
+  } catch (error) {
+    console.error('❌ Error al obtener armas eliminadas:', error)
+    console.error('❌ Error completo:', JSON.stringify(error, null, 2))
+    
+    let errorMessage = 'Error desconocido'
+    if (error?.data?.message) {
+      errorMessage = error.data.message
+    } else if (error?.message) {
+      errorMessage = error.message
+    }
+    
+    console.error('❌ Mensaje de error procesado:', errorMessage)
+    showErrorMessage('❌ Error al Cargar Eliminados', `No se pudieron cargar los registros eliminados: ${errorMessage}`)
+    deletedArmas.value = []
+    
+  } finally {
+    isFetchingDeleted.value = false
+    console.log('🗑️ fetchDeletedArmas finalizado. isFetchingDeleted:', isFetchingDeleted.value)
+  }
+}
+
+// Función para abrir el modal de registros eliminados
+const openDeletedListModal = async () => {
+  isDeletedListVisible.value = true
+  await fetchDeletedArmas()
+}
+
+// Función para cerrar el modal de registros eliminados
+const closeDeletedListModal = () => {
+  isDeletedListVisible.value = false
+  deletedArmas.value = []
+}
+
+// Función para restaurar desde la lista de eliminados
+const restoreFromList = async arma => {
+  if (!arma || !arma.id) {
+    console.error('❌ No hay datos válidos del arma para restaurar:', arma)
+    showErrorMessage('❌ Error de Validación', 'Datos del arma no válidos para restaurar')
+    
+    return
+  }
+  
+  console.log('🔄 Restaurando desde lista:', arma)
+  
+  // Guardar referencia de los datos del arma
+  const armaToRestore = { ...arma }
+  
+  isRestoringFromList.value = true
+  
+  try {
+    // Usar la misma ruta que funciona en restoreArma: POST /armas/{id}/restore
+    const routeUsed = `/armas/${armaToRestore.id}/restore`
+    
+    console.log('🔄 Restaurando con ruta:', routeUsed)
+    
+    const { data: responseData, error } = await useApi(routeUsed, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    })
+
+    if (error.value) {
+      throw error.value
+    }
+
+    console.log('🔄 Respuesta de restauración desde lista:', responseData.value)
+
+    // Actualizar solo este registro en la tabla principal sin recargar
+    const restoredArma = responseData.value?.data || armaToRestore
+    
+    updateArmaInTable(restoredArma, false) // No es un registro nuevo, es una restauración
+
+    // Mostrar mensaje de éxito usando la referencia guardada
+    showSuccessMessage('✅ Restauración Exitosa', `Arma "${armaToRestore.arma_descripcion || armaToRestore.arma_cod || 'ID: ' + armaToRestore.id}" restaurada correctamente`)
+
+    // Solo recargar la lista de eliminados para actualizarla
+    await fetchDeletedArmas()
+    
+    console.log('🔄 Restauración desde lista completada exitosamente sin recargar tabla principal')
+    
+  } catch (error) {
+    console.error('❌ Error al restaurar arma desde lista:', error)
+    console.error('❌ Error completo:', JSON.stringify(error, null, 2))
+    
+    let errorMessage = 'Error desconocido'
+    if (error?.data?.message) {
+      errorMessage = error.data.message
+    } else if (error?.message) {
+      errorMessage = error.message
+    } else if (typeof error === 'string') {
+      errorMessage = error
+    }
+    
+    console.error('❌ Mensaje de error procesado:', errorMessage)
+    showErrorMessage('❌ Error de Restauración', `No se pudo restaurar el arma: ${errorMessage}`)
+  } finally {
+    isRestoringFromList.value = false
+  }
+}
+
+// --- Devuelve el color y el icono según el estado del arma ---
+const resolveArmaStatusVariantAndIcon = status => {
+  if (status === 'Activo')
+    return {
+      variant: 'activos',
+      icon: 'tabler-check',
+    }
+  if (status === 'Inactivo')
+    return {
+      variant: 'inactivos',
+      icon: 'tabler-ban',
+    }
+}
+
+// Watcher para actualizar el estado del checkbox "Seleccionar Todos" cuando cambien los datos
+// Se coloca al final para asegurar que todas las dependencias estén definidas
+watch(armas, () => {
+  updateSelectAllState()
+}, { immediate: true })
+</script>
+
+<template>
+  <section>
+    <!-- Mensaje de error de API -->
+    <div
+      v-if="apiError"
+      class="demo-space-y"
+    >
+      <VAlert
+        type="error"
+        variant="tonal"
+      >
+        <VAlertTitle>
+          <VIcon 
+            icon="tabler-alert-triangle" 
+            size="20" 
+            class="me-2" 
+          />
+          Error al cargar datos
+        </VAlertTitle>
+        <div class="mt-2">
+          <strong>Detalle del error:</strong><br>
+          {{ apiError }}
+        </div>
+        <div class="mt-2 text-caption">
+          <strong>Endpoint API:</strong> {{ API_BASE_URL }}/armas
+        </div>
+        <div class="mt-3">
+          <VBtn
+            color="error"
+            variant="outlined"
+            :loading="isFetching"
+            @click="retryLoadData"
+          >
+            <VIcon icon="tabler-refresh" />
+            Reintentar Conexión
+          </VBtn>
+        </div>
+      </VAlert>
+    </div>
+
+    <!-- Indicador de carga -->
+    <div
+      v-if="isFetching"
+      class="d-flex justify-center align-center pa-4"
+    >
+      <VProgressCircular
+        indeterminate
+        color="primary"
+        size="24"
+      />
+      <span class="ms-2">
+        <VIcon 
+          icon="tabler-database" 
+          size="16" 
+          class="me-1" 
+        />
+        Cargando datos...
+      </span>
+    </div>
+
+    <!-- Contenido principal cuando hay datos -->
+    <VCard
+      v-if="!isFetching"
+      id="arma-list"
+    >
+      <VCardText class="d-flex justify-space-between align-center flex-wrap gap-4">
+        <div class="d-flex gap-4 align-center flex-wrap">
+          <div class="d-flex align-center gap-2">
+            <!-- Selector de cantidad de filas por página -->
+            <span>Mostrar</span>
+            <AppSelect
+              :model-value="itemsPerPage"
+              :items="[
+                { value: 10, title: '10' },
+                { value: 25, title: '25' },
+                { value: 50, title: '50' },
+                { value: 100, title: '100' },
+                { value: -1, title: 'Todos' },
+              ]"
+              style="inline-size: 5.5rem;"
+              @update:model-value="itemsPerPage = parseInt($event, 10)"
+            />
+          </div>
+          <!-- Botón para crear nueva arma -->
+          <VBtn
+            prepend-icon="tabler-plus"
+            @click="openCreateModal"
+          >
+            <VIcon />
+            Crear Nuevo Registro
+          </VBtn>
+          
+          <!-- Botón para eliminar seleccionados -->
+          <VBtn
+            v-show="selectedRows.length > 0"
+            prepend-icon="tabler-trash"
+            color="error"
+            variant="elevated"
+            :loading="isDeleting"
+            :disabled="isDeleting"
+            @click="deleteSelectedArmas"
+          >
+            <VIcon />
+            {{ isDeleting ? 'Eliminando...' : `Eliminar Seleccionados (${selectedRows.length})` }}
+          </VBtn>
+          
+          <!-- Botón para ver registros eliminados -->
+          <VBtn
+            prepend-icon="tabler-trash"
+            color="secondary"
+            variant="outlined"
+            @click="openDeletedListModal"
+          >
+            <VIcon />
+            Registros Eliminados
+          </VBtn>
+          
+          <!-- Botones de prueba (temporal) -->
+          <VBtn
+            prepend-icon="tabler-test-pipe"
+            color="info"
+            variant="outlined"
+            @click="testRestoreRoutes"
+          >
+            Test Restore
+          </VBtn>
+          
+          <VBtn
+            prepend-icon="tabler-test-pipe"
+            color="warning"
+            variant="outlined"
+            @click="testDeletedRoutes"
+          >
+            Test Deleted
+          </VBtn>
+          
+          <!-- Botón de prueba directo para fetchDeletedArmas -->
+          <VBtn
+            prepend-icon="tabler-bug"
+            color="purple"
+            variant="outlined"
+            @click="fetchDeletedArmas"
+          >
+            Debug Deleted
+          </VBtn>
+        </div>
+        <div class="d-flex align-center flex-wrap gap-4">
+          <!-- Campo de búsqueda -->
+          <div class="arma-list-filter">
+            <AppTextField
+              v-model="searchQuery"
+              placeholder="Buscar..."
+            />
+          </div>
+          <!-- Selector de estado -->
+          <div class="arma-list-filter">
+            <AppSelect
+              v-model="selectedStatus"
+              placeholder="Estado de arma"
+              clearable
+              clear-icon="tabler-x"
+              single-line
+              :items="[
+                { value: 'Activo', title: 'Activo' },
+                { value: 'Inactivo', title: 'Inactivo' }
+              ]"
+            />
+          </div>
+        </div>
+      </VCardText>
+      <VDivider />
+
+      <!-- Tabla de datos -->
+      <VDataTableServer
+        v-model:items-per-page="itemsPerPage"
+        v-model:page="page"
+        :items-length="totalArmas"
+        :headers="headers"
+        :items="armas"
+        item-value="id"
+        class="text-no-wrap"
+        @update:options="updateOptions"
+      >
+        <!-- Checkbox para seleccionar todos -->
+        <template #header.data-table-select="{ }">
+          <VCheckbox
+            v-model="selectAll"
+            :indeterminate="selectedRows.length > 0 && selectedRows.length < armas.length"
+            @update:model-value="toggleSelectAll"
+          />
+        </template>
+        
+        <!-- Checkbox para seleccionar fila individual -->
+        <template #item.data-table-select="{ item }">
+          <VCheckbox
+            :model-value="isRowSelected(item.id)"
+            @update:model-value="toggleRowSelection(item.id)"
+          />
+        </template>
+        
+        <!-- Renderiza la columna id -->
+        <template #item.id="{ item }">
+          {{ item.id }}
+        </template>
+        <!-- Renderiza la columna código -->
+        <template #item.codigo="{ item }">
+          {{ item.arma_cod }}
+        </template>
+        <!-- Renderiza la columna descripción -->
+        <template #item.descripcion="{ item }">
+          <div class="d-flex align-center">
+            <div class="d-flex flex-column">
+              {{ item.arma_descripcion }}
+            </div>
+          </div>
+        </template>
+        <!-- Renderiza la columna abreviatura -->
+        <template #item.abreviatura="{ item }">
+          {{ item.arma_abreviacion }}
+        </template>
+        <!-- Renderiza la columna posición -->
+        <template #item.posicion="{ item }">
+          {{ item.arma_posicion }}
+        </template>
+        <!-- Renderiza la columna estado con icono y color -->
+        <template #item.status="{ item }">
+          <VTooltip>
+            <template #activator="{ props }">
+              <VAvatar
+                :size="28"
+                v-bind="props"
+                :color="resolveArmaStatusVariantAndIcon(item.arma_estado).variant"
+                variant="tonal"
+              >
+                <VIcon
+                  :size="16"
+                  :icon="resolveArmaStatusVariantAndIcon(item.arma_estado).icon"
+                />
+              </VAvatar>
+            </template>
+            <p class="mb-0">
+              {{ item.arma_estado || 'Sin estado' }}
+            </p>
+          </VTooltip>
+        </template>
+        <!-- Renderiza las acciones (editar y eliminar) -->
+        <template #item.actions="{ item }">
+          <IconBtn @click="openDeleteDialog(item.id)">
+            <VIcon icon="tabler-trash" />
+          </IconBtn>
+          <IconBtn @click="openEditModal(item)">
+            <VIcon icon="tabler-pencil" />
+          </IconBtn>
+        </template>
+      </VDataTableServer>
+    </VCard>
+
+    <!-- Si no hay datos y no está cargando, muestra mensaje -->
+    <VCard v-if="!isFetching && (!armaData || !armaData.data || armaData.data.length === 0)">
+      <VCardText class="text-center pa-6">
+        <VIcon 
+          icon="tabler-database-off" 
+          size="64" 
+          class="text-grey-400 mb-3" 
+        />
+        <VCardTitle class="text-h5 mb-2">
+          No hay datos disponibles
+        </VCardTitle>
+        <p class="text-body-2 text-grey-600 mb-4">
+          No se encontraron registros de armas en la base de datos.
+        </p>
+        <VBtn
+          color="primary"
+          variant="outlined"
+          @click="openCreateModal"
+        >
+          <VIcon icon="tabler-plus" />
+          Crear Primer Registro
+        </VBtn>
+      </VCardText>
+    </VCard>
+  </section>
+  <!-- Modal para crear/editar arma -->
+  <ArmaInfoEditDialog
+    :is-dialog-visible="isDialogVisible"
+    :arma-data="selectedArma"
+    :mode="formMode"
+    :form-errors="formErrors"
+    @submit="handleArmaSubmit"
+    @update:is-dialog-visible="handleDialogClose"
+  />
+
+  <VDialog
+    v-model="isDialogVisibleDelete"
+    persistent
+    class="v-dialog-sm"
+  >
+    <!-- Dialog close btn -->
+    <DialogCloseBtn @click="isDialogVisibleDelete = false" />
+
+    <!-- Dialog Content -->
+    <VCard
+      title="⚠️ Confirmar Eliminación"
+      class="pa-sm-10 pa-2"
+    >
+      <VCardText>
+        <div class="mb-4">
+          <p class="text-body-1 mb-2">
+            <VIcon 
+              icon="tabler-alert-triangle" 
+              size="18" 
+              class="me-2 text-warning" 
+            />
+            ¿Estás seguro de que deseas eliminar este registro?
+          </p>
+          
+          <div 
+            v-if="deletedArma"
+            class="pa-3 bg-grey-50 rounded"
+          >
+            <div class="text-h6 mb-1">
+              <VIcon 
+                icon="tabler-shield-x" 
+                size="16" 
+                class="me-2 text-error" 
+              />
+              {{ deletedArma?.arma_descripcion || 'Sin descripción' }}
+            </div>
+            <div class="text-body-2 text-medium-emphasis">
+              <VIcon 
+                icon="tabler-hash" 
+                size="14" 
+                class="me-1" 
+              />
+              <strong>Código:</strong> {{ deletedArma?.arma_cod || 'Sin código' }}<br>
+              <VIcon 
+                icon="tabler-text-size" 
+                size="14" 
+                class="me-1" 
+              />
+              <strong>Abreviatura:</strong> {{ deletedArma?.arma_abreviacion || 'Sin abreviatura' }}<br>
+              <VIcon 
+                icon="tabler-sort-ascending-numbers" 
+                size="14" 
+                class="me-1" 
+              />
+              <strong>Posición:</strong> {{ deletedArma?.arma_posicion || 'Sin posición' }}
+            </div>
+          </div>
+          
+          <p class="text-body-2 text-error mt-3">
+            <VIcon 
+              icon="tabler-info-circle" 
+              size="16" 
+              class="me-1" 
+            />
+            El registro será marcado como eliminado (soft delete). Podrás restaurarlo usando "Rehacer Acción".
+          </p>
+        </div>
+      </VCardText>
+      
+      <VCardText class="d-flex justify-end gap-3 flex-wrap">
+        <VBtn
+          color="secondary"
+          variant="tonal"
+          @click="isDialogVisibleDelete = false"
+        >
+          Cancelar
+        </VBtn>
+        <VBtn
+          color="error"
+          @click="confirmDeleteArma"
+        >
+          <VIcon icon="tabler-trash" />
+          Eliminar
+        </VBtn>
+      </VCardText>
+    </VCard>
+  </VDialog>
+
+  <!-- Modal para mostrar registros eliminados -->
+  <VDialog
+    v-model="isDeletedListVisible"
+    max-width="900px"
+    scrollable
+  >
+    <!-- Dialog close btn -->
+    <DialogCloseBtn @click="closeDeletedListModal" />
+
+    <!-- Dialog Content -->
+    <VCard title="🗑️ Registros Eliminados">
+      <VCardText>
+        <div 
+          v-if="isFetchingDeleted" 
+          class="d-flex justify-center align-center pa-4"
+        >
+          <VProgressCircular
+            indeterminate
+            color="primary"
+            size="24"
+          />
+          <span class="ms-2">
+            <VIcon 
+              icon="tabler-database-search" 
+              size="16" 
+              class="me-1" 
+            />
+            Cargando registros eliminados...
+          </span>
+        </div>
+
+        <div 
+          v-else-if="deletedArmas.length === 0" 
+          class="text-center pa-4"
+        >
+          <VIcon 
+            icon="tabler-trash-off" 
+            size="64" 
+            class="text-grey-400 mb-2" 
+          />
+          <p class="text-h6 text-grey-600">
+            <VIcon 
+              icon="tabler-check-circle" 
+              size="20" 
+              class="me-2 text-success" 
+            />
+            No hay registros eliminados
+          </p>
+          <p class="text-body-2 text-grey-500 mt-2">
+            Todos los registros están activos en el sistema.
+          </p>
+        </div>
+
+        <div v-else>
+          <VDataTable
+            :items="deletedArmas"
+            :headers="[
+              { title: '#', key: 'id', width: '80px' },
+              { title: 'Código', key: 'arma_cod' },
+              { title: 'Descripción', key: 'arma_descripcion' },
+              { title: 'Abreviatura', key: 'arma_abreviacion' },
+              { title: 'Posición', key: 'arma_posicion', width: '100px' },
+              { title: 'Acciones', key: 'actions', sortable: false, width: '120px' },
+            ]"
+            item-value="id"
+            class="text-no-wrap"
+            density="compact"
+          >
+            <!-- Renderiza la columna descripción -->
+            <template #item.arma_descripcion="{ item }">
+              <div class="d-flex align-center">
+                <VIcon 
+                  icon="tabler-trash" 
+                  size="16" 
+                  class="text-error me-2" 
+                />
+                <span class="text-decoration-line-through text-grey-600">
+                  {{ item.arma_descripcion }}
+                </span>
+              </div>
+            </template>
+
+            <!-- Renderiza las acciones -->
+            <template #item.actions="{ item }">
+              <VBtn
+                size="small"
+                color="success"
+                variant="outlined"
+                :loading="isRestoringFromList"
+                :disabled="isRestoringFromList"
+                @click="restoreFromList(item)"
+              >
+                <VIcon 
+                  icon="tabler-arrow-back-up" 
+                  size="16" 
+                />
+                {{ isRestoringFromList ? 'Restaurando...' : 'Restaurar' }}
+              </VBtn>
+            </template>
+          </VDataTable>
+        </div>
+      </VCardText>
+
+      <VCardActions class="justify-end">
+        <VBtn
+          color="secondary"
+          variant="outlined"
+          @click="closeDeletedListModal"
+        >
+          Cerrar
+        </VBtn>
+      </VCardActions>
+    </VCard>
+  </VDialog>
+
+  <!-- Modal de Mensaje de Éxito -->
+  <VDialog
+    v-model="showSuccessModal"
+    max-width="500px"
+    persistent
+  >
+    <VCard>
+      <VCardTitle class="d-flex align-center justify-center pa-6 bg-success">
+        <VIcon 
+          icon="tabler-check-circle" 
+          size="32" 
+          class="me-3 text-white" 
+        />
+        <span class="text-h5 text-white">{{ successTitle }}</span>
+      </VCardTitle>
+      
+      <VCardText class="text-center pa-6">
+        <VIcon 
+          icon="tabler-circle-check-filled" 
+          size="64" 
+          class="text-success mb-4" 
+        />
+        <p class="text-h6 mb-3">
+          {{ successMessage }}
+        </p>
+        <p class="text-body-2 text-grey-600">
+          La operación se completó exitosamente.
+        </p>
+      </VCardText>
+      
+      <VCardActions class="justify-center pa-4">
+        <VBtn
+          color="success"
+          variant="elevated"
+          @click="closeSuccessModal"
+        >
+          <VIcon icon="tabler-check" />
+          Entendido
+        </VBtn>
+      </VCardActions>
+    </VCard>
+  </VDialog>
+
+  <!-- Modal de Mensaje de Error -->
+  <VDialog
+    v-model="showErrorModal"
+    max-width="600px"
+    persistent
+  >
+    <VCard>
+      <VCardTitle class="d-flex align-center justify-center pa-6 bg-error">
+        <VIcon 
+          icon="tabler-alert-triangle" 
+          size="32" 
+          class="me-3 text-white" 
+        />
+        <span class="text-h5 text-white">{{ errorTitle }}</span>
+      </VCardTitle>
+      
+      <VCardText class="text-center pa-6">
+        <VIcon 
+          icon="tabler-alert-circle-filled" 
+          size="64" 
+          class="text-error mb-4" 
+        />
+        <p class="text-h6 mb-3">
+          {{ errorMessage }}
+        </p>
+        <p class="text-body-2 text-grey-600">
+          Por favor, revisa los datos e intenta nuevamente.
+        </p>
+      </VCardText>
+      
+      <VCardActions class="justify-center pa-4">
+        <VBtn
+          color="error"
+          variant="elevated"
+          @click="closeErrorModal"
+        >
+          <VIcon icon="tabler-x" />
+          Cerrar
+        </VBtn>
+      </VCardActions>
+    </VCard>
+  </VDialog>
+
+  <!-- Modal de Mensaje de Eliminación -->
+  <VDialog
+    v-model="showDeletedModal"
+    max-width="600px"
+    persistent
+  >
+    <VCard>
+      <VCardTitle class="d-flex align-center justify-center pa-6 bg-warning">
+        <VIcon 
+          icon="tabler-trash-x" 
+          size="32" 
+          class="me-3 text-white" 
+        />
+        <span class="text-h5 text-white">🗑️ Registro Eliminado</span>
+      </VCardTitle>
+      
+      <VCardText class="text-center pa-6">
+        <VIcon 
+          icon="tabler-alert-triangle-filled" 
+          size="64" 
+          class="text-warning mb-4" 
+        />
+        <p class="text-h6 mb-3">
+          <VIcon 
+            icon="tabler-info-circle" 
+            size="20" 
+            class="me-2" 
+          />
+          Arma marcada como eliminada
+        </p>
+        
+        <div 
+          v-if="deletedArma"
+          class="pa-4 bg-grey-50 rounded mb-4"
+        >
+          <div class="text-h6 mb-2">
+            <VIcon 
+              icon="tabler-shield-x" 
+              size="18" 
+              class="me-2 text-error" 
+            />
+            {{ deletedArma?.arma_descripcion || 'Sin descripción' }}
+          </div>
+          <div class="text-body-2 text-medium-emphasis">
+            <VIcon 
+              icon="tabler-hash" 
+              size="14" 
+              class="me-1" 
+            />
+            <strong>Código:</strong> {{ deletedArma?.arma_cod || 'Sin código' }}<br>
+            <VIcon 
+              icon="tabler-text-size" 
+              size="14" 
+              class="me-1" 
+            />
+            <strong>Abreviatura:</strong> {{ deletedArma?.arma_abreviacion || 'Sin abreviatura' }}
+          </div>
+        </div>
+        
+        <p class="text-body-2 text-grey-600">
+          El registro ha sido marcado como eliminado (soft delete). Puedes restaurarlo usando el botón "Restaurar".
+        </p>
+      </VCardText>
+      
+      <VCardActions class="justify-center pa-4 gap-3">
+        <VBtn
+          color="success"
+          variant="elevated"
+          :loading="isRestoring"
+          :disabled="isRestoring"
+          @click="restoreArma"
+        >
+          <VIcon icon="tabler-arrow-back-up" />
+          {{ isRestoring ? 'Restaurando...' : 'Restaurar Registro' }}
+        </VBtn>
+        <VBtn
+          color="secondary"
+          variant="outlined"
+          :disabled="isRestoring"
+          @click="closeDeletedModal"
+        >
+          <VIcon icon="tabler-x" />
+          Cerrar
+        </VBtn>
+      </VCardActions>
+    </VCard>
+  </VDialog>
+</template>
+
+<style lang="scss">
+#arma-list {
+  .arma-list-actions {
+    inline-size: 8rem;
+  }
+
+  .arma-list-filter {
+    inline-size: 12rem;
+  }
+}
+</style>

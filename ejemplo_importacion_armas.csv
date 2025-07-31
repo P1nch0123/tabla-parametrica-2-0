@@ -1,0 +1,16 @@
+Código;Descripción;Abreviatura;Posición;Estado
+001;Fusil de Asalto AK-47;AK47;1;Activo
+002;Pistola Glock 19;G19;2;Activo
+003;Rifle de Francotirador Barrett M82;BM82;3;Activo
+004;Escopeta Remington 870;R870;4;Activo
+005;Subfusil MP5;MP5;5;Activo
+006;Granada de Fragmentación M67;M67;6;Activo
+007;Lanzagranadas M79;M79;7;Inactivo
+008;Ametralladora M60;M60;8;Activo
+009;Pistola Beretta 92FS;B92;9;Activo
+010;Fusil M16A4;M16;10;Activo
+011;Revólver Smith & Wesson .357;SW357;11;Activo
+012;Escopeta Mossberg 500;M500;12;Inactivo
+013;Subfusil UZI;UZI;13;Activo
+014;Rifle de Asalto M4 Carbine;M4;14;Activo
+015;Pistola Colt 1911;C1911;15;Activo

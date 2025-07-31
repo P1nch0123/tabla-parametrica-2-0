@@ -1,0 +1,16 @@
+Código;Descripción;Abreviatura;Posición;Estado
+FUS001;Fusil de Asalto AK-47;AK47;1;Activo
+PIS002;Pistola Glock 19;G19;2;Activo
+RIF003;Rifle de Francotirador Barrett M82;BM82;3;Activo
+ESC004;Escopeta Remington 870;R870;4;Activo
+SUB005;Subfusil MP5;MP5;5;Activo
+GRA006;Granada de Fragmentación M67;M67;6;Activo
+LAN007;Lanzagranadas M79;M79;7;Inactivo
+AME008;Ametralladora M60;M60;8;Activo
+PIS009;Pistola Beretta 92FS;B92;9;Activo
+FUS010;Fusil M16A4;M16;10;Activo
+REV011;Revólver Smith & Wesson .357;SW357;11;Activo
+ESC012;Escopeta Mossberg 500;M500;12;Inactivo
+SUB013;Subfusil UZI;UZI;13;Activo
+RIF014;Rifle de Asalto M4 Carbine;M4;14;Activo
+PIS015;Pistola Colt 1911;C1911;15;Activo
