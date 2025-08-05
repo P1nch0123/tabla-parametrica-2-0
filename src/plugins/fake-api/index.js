@@ -32,6 +32,20 @@ export default function () {
       const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
       const url = new URL(request.url)
       
+      // ✅ NUEVO: No interceptar blob URLs (para PDFs y archivos locales)
+      if (request.url.startsWith('blob:')) {
+        console.log('MSW: Bypassing blob URL:', request.url)
+        
+        return
+      }
+      
+      // ✅ NUEVO: No interceptar data URLs
+      if (request.url.startsWith('data:')) {
+        console.log('MSW: Bypassing data URL:', request.url)
+        
+        return
+      }
+      
       // Si la petición va a la API real, no interceptar
       if (apiBaseUrl && request.url.startsWith(apiBaseUrl)) {
         console.log('MSW: Bypassing API request to real server:', request.method, request.url)

@@ -5,12 +5,6 @@ import ArmaInfoEditDialog from '@/pages/components/dialogs/ArmaInfoEditDialog.vu
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 
-// Importaciones para el nuevo sistema de reportes PDF
-import { saveAs } from 'file-saver'
-import { default as jsPDF } from 'jspdf'
-import VuePdfEmbed from 'vue-pdf-embed'
-import * as XLSX from 'xlsx'
-
 // Composable para traducción
 const { t } = useI18n()
 
@@ -1274,37 +1268,6 @@ const getFilteredDataForExport = () => {
 // --- Funciones de exportación ---
 const isExporting = ref(false)
 
-// === Variables reactivas para el nuevo sistema de reportes PDF ===
-const showPdfViewer = ref(false)
-const pdfSrc = ref('')
-const pdfBlob = ref(null)
-const pdfPages = ref(0)
-const currentPage = ref(1)
-const pdfData = ref(null)
-const pdfError = ref(null)
-const useIframe = ref(false) // Para cambiar entre VuePdfEmbed e iframe
-const pdfDocument = ref(null) // Para almacenar el documento PDF
-
-// Estados para zoom y rotación (inicializado al 200%)
-const pdfZoom = ref(2.0)
-const pdfRotation = ref(0)
-
-// Estados para plantillas
-const selectedTemplate = ref('standard')
-const showTemplateDialog = ref(false)
-
-// Estados para exportación avanzada
-const showExportDialog = ref(false)
-const exportFormat = ref('pdf')
-
-// Plantillas disponibles
-const templates = [
-  { value: 'standard', title: 'Reporte Estándar', description: 'Tabla básica con todos los campos' },
-  { value: 'detailed', title: 'Reporte Detallado', description: 'Incluye gráficos y estadísticas' },
-  { value: 'summary', title: 'Resumen Ejecutivo', description: 'Vista compacta con métricas clave' },
-  { value: 'inventory', title: 'Control de Inventario', description: 'Enfoque en estado y mantenimiento' },
-]
-
 // --- Funciones de importación ---
 const isImporting = ref(false)
 const fileInput = ref(null)
@@ -1314,54 +1277,6 @@ const showImportFormatDialog = ref(false)
 const exportToCSV = async () => {
   isExporting.value = true
   try {
-    console.log('📄 Exportando a CSV...')
-    
-    // Usar los datos filtrados localmente
-    const armasData = getFilteredDataForExport()
-
-    if (!armasData || armasData.length === 0) {
-      throw new Error('No hay datos para exportar con los filtros actuales')
-    }
-
-    // Preparar encabezados
-    const headers = ['ID', 'Código', 'Descripción', 'Abreviatura', 'Posición', 'Estado', 'Fecha de Exportación']
-    
-    // Preparar datos
-    const csvData = armasData.map(arma => [
-      arma.id,
-      arma.arma_cod || '',
-      arma.arma_descripcion || '',
-      arma.arma_abreviacion || '',
-      arma.arma_posicion || '',
-      arma.arma_estado || '',
-      new Date().toLocaleDateString('es-ES'),
-    ])
-    
-    // Combinar encabezados y datos
-    const csvContent = [headers, ...csvData]
-      .map(row => row.map(cell => `"${cell}"`).join(','))
-      .join('\n')
-    
-    // Crear blob y descargar
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const fileName = `inventario-armas-${new Date().toISOString().split('T')[0]}.csv`
-
-    saveAs(blob, fileName)
-    
-    console.log('✅ CSV exportado exitosamente:', fileName)
-    showSuccessMessage('✅ Exportación Exitosa', `Se han exportado ${armasData.length} registros a CSV (filtros aplicados)`)
-  } catch (error) {
-    console.error('❌ Error al exportar CSV:', error)
-    showErrorMessage('❌ Error de Exportación', `No se pudo exportar a CSV: ${error.message}`)
-  } finally {
-    isExporting.value = false
-  }
-}
-
-// Función para exportar a JSON
-const exportToJSON = async () => {
-  isExporting.value = true
-  try {
     // Usar los datos filtrados localmente en lugar de hacer nueva petición a la API
     const armasData = getFilteredDataForExport()
 
@@ -1369,50 +1284,39 @@ const exportToJSON = async () => {
       throw new Error('No hay datos para exportar con los filtros actuales')
     }
 
-    // Preparar los datos para JSON con estructura limpia
-    const jsonData = armasData.map(arma => ({
-      id: arma.id,
-      codigo: arma.arma_cod || '',
-      descripcion: arma.arma_descripcion || '',
-      abreviatura: arma.arma_abreviacion || '',
-      posicion: arma.arma_posicion || '',
-      estado: arma.arma_estado || '',
-      fechaExportacion: new Date().toISOString(),
-    }))
+    // Preparar los datos para CSV
+    const csvHeaders = ['ID', 'Código', 'Descripción', 'Abreviatura', 'Posición', 'Estado']
 
-    // Crear objeto JSON con metadatos
-    const exportData = {
-      metadata: {
-        titulo: 'Exportación de Armas',
-        fechaExportacion: new Date().toISOString(),
-        totalRegistros: jsonData.length,
-        filtrosAplicados: {
-          busqueda: searchQuery.value || null,
-          estado: selectedStatus.value || null,
-        },
-      },
-      data: jsonData,
-    }
+    const csvData = armasData.map(arma => [
+      arma.id,
+      arma.arma_cod || '',
+      arma.arma_descripcion || '',
+      arma.arma_abreviacion || '',
+      arma.arma_posicion || '',
+      arma.arma_estado || '',
+    ])
 
-    // Convertir a JSON con formato legible
-    const jsonContent = JSON.stringify(exportData, null, 2)
+    // Crear contenido CSV
+    const csvContent = [csvHeaders, ...csvData]
+      .map(row => row.map(field => `"${field}"`).join(','))
+      .join('\n')
 
     // Crear y descargar archivo
-    const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' })
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     const url = URL.createObjectURL(blob)
 
     link.setAttribute('href', url)
-    link.setAttribute('download', `armas_${new Date().toISOString().split('T')[0]}.json`)
+    link.setAttribute('download', `armas_${new Date().toISOString().split('T')[0]}.csv`)
     link.style.visibility = 'hidden'
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
     
-    showSuccessMessage('✅ Exportación Exitosa', `Se han exportado ${armasData.length} registros a JSON (filtros aplicados)`)
+    showSuccessMessage('✅ Exportación Exitosa', `Se han exportado ${armasData.length} registros a CSV (filtros aplicados)`)
   } catch (error) {
-    console.error('Error al exportar JSON:', error)
-    showErrorMessage('❌ Error de Exportación', `No se pudo exportar a JSON: ${error.message}`)
+    console.error('Error al exportar CSV:', error)
+    showErrorMessage('❌ Error de Exportación', `No se pudo exportar a CSV: ${error.message}`)
   } finally {
     isExporting.value = false
   }
@@ -1422,450 +1326,136 @@ const exportToJSON = async () => {
 const exportToExcel = async () => {
   isExporting.value = true
   try {
-    console.log('Exportando a Excel...')
-    
-    // Usar los datos filtrados localmente
+    // Usar los datos filtrados localmente en lugar de hacer nueva petición a la API
     const armasData = getFilteredDataForExport()
 
     if (!armasData || armasData.length === 0) {
       throw new Error('No hay datos para exportar con los filtros actuales')
     }
     
-    // Preparar datos para Excel con estructura limpia
-    const excelData = armasData.map(arma => ({
-      ID: arma.id,
-      Código: arma.arma_cod || '',
-      Descripción: arma.arma_descripcion || '',
-      Abreviatura: arma.arma_abreviacion || '',
-      Posición: arma.arma_posicion || '',
-      Estado: arma.arma_estado || '',
-      'Fecha de Exportación': new Date().toLocaleDateString('es-ES'),
-    }))
+    // Crear contenido HTML para Excel
+    let excelContent = `
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { margin: 0; font-family: Arial, sans-serif; font-size: 11px; color: #333; }
+            .header-container { display: flex; align-items: center; margin-bottom: 30px; border-bottom: 2px solid #4F4F4F; padding-bottom: 15px; }
+            .membrete { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px; line-height: 1.4; }
+            .membrete-item { margin-bottom: 5px; }
+            .title-section { flex: 2; text-align: center; }
+            .main-title { font-size: 24px; font-weight: bold; color: #2c3e50; margin: 0; text-transform: uppercase; }
+            .date-info { margin-top: 10px; font-size: 11px; color: #666; }
+            table { width: 100%; border-collapse: collapse; border: 2px solid #4F4F4F; margin-bottom: 20px; }
+            th, td { border: 1px solid #ddd; padding: 12px 8px; text-align: left; }
+            th { background-color: #4F4F4F !important; color: white !important; font-weight: bold; }
+            tr:nth-child(even) { background-color: #f9f9f9; }
+            .footer { text-align: center; font-size: 10px; margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          
+            <div class="title-section">
+              <h1 class="main-title">REPORTE DE ARMAS</h1>
+              <div class="date-info">
+                <p>Fecha: ${new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                <p>Hora: ${new Date().toLocaleTimeString('es-MX')}</p>
+              </div>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Código</th>
+                <th>Descripción</th>
+                <th>Abreviatura</th>
+                <th>Posición</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+    `
     
-    // Crear libro de trabajo
-    const ws = XLSX.utils.json_to_sheet(excelData)
-    const wb = XLSX.utils.book_new()
+    armasData.forEach(arma => {
+      excelContent += `
+        <tr>
+          <td>${arma.id}</td>
+          <td>${arma.arma_cod || ''}</td>
+          <td>${arma.arma_descripcion || ''}</td>
+          <td>${arma.arma_abreviacion || ''}</td>
+          <td>${arma.arma_posicion || ''}</td>
+          <td>${arma.arma_estado || ''}</td>
+        </tr>
+      `
+    })
     
-    // Agregar hoja
-    XLSX.utils.book_append_sheet(wb, ws, 'Inventario de Armas')
-    
-    // Ajustar ancho de columnas
-    const colWidths = [
-      { wch: 5 },  // ID
-      { wch: 12 }, // Código
-      { wch: 25 }, // Descripción
-      { wch: 15 }, // Abreviatura
-      { wch: 10 }, // Posición
-      { wch: 12 }, // Estado
-      { wch: 18 }, // Fecha
-    ]
+    excelContent += `
+            </tbody>
+          </table>
+          <div class="footer">
+            <p><strong>Generado por el Sistema SPRODA V2.0</strong></p>
+            <p>Total de registros: ${armasData.length}</p>
+          </div>
+        </body>
+      </html>
+    `
 
-    ws['!cols'] = colWidths
-    
-    // Generar archivo y descargarlo
-    const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
-    const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    
-    const fileName = `inventario-armas-${new Date().toISOString().split('T')[0]}.xlsx`
+    // Crear y descargar archivo Excel
+    const blob = new Blob([excelContent], { type: 'application/vnd.ms-excel' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
 
-    saveAs(blob, fileName)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `reporte_armas_${new Date().toISOString().split('T')[0]}.xls`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
     
-    console.log('✅ Excel exportado exitosamente:', fileName)
     showSuccessMessage('✅ Exportación Exitosa', `Se han exportado ${armasData.length} registros a Excel (filtros aplicados)`)
   } catch (error) {
-    console.error('❌ Error al exportar Excel:', error)
+    console.error('Error al exportar Excel:', error)
     showErrorMessage('❌ Error de Exportación', `No se pudo exportar a Excel: ${error.message}`)
   } finally {
     isExporting.value = false
   }
 }
 
-// === Funciones avanzadas para el nuevo sistema de reportes PDF ===
-
-// Función para manejar cuando el PDF se carga
-const onPdfLoaded = pdf => {
-  pdfDocument.value = pdf
-  pdfPages.value = pdf.numPages
-  pdfError.value = null
-  console.log('✅ PDF cargado exitosamente:', pdf.numPages, 'páginas')
-}
-
-// === Funciones para zoom y rotación ===
-const zoomIn = () => {
-  if (pdfZoom.value < 3.0) {
-    pdfZoom.value = Math.round((pdfZoom.value + 0.25) * 100) / 100
-    console.log('🔍 Zoom In:', pdfZoom.value)
-  }
-}
-
-const zoomOut = () => {
-  if (pdfZoom.value > 0.5) {
-    pdfZoom.value = Math.round((pdfZoom.value - 0.25) * 100) / 100
-    console.log('🔍 Zoom Out:', pdfZoom.value)
-  }
-}
-
-const resetZoom = () => {
-  pdfZoom.value = 2.0 // Resetear al zoom inicial del 200%
-  console.log('🔍 Zoom Reset:', pdfZoom.value)
-}
-
-const rotateClockwise = () => {
-  pdfRotation.value = (pdfRotation.value + 90) % 360
-  console.log('🔄 Rotar:', pdfRotation.value)
-}
-
-const rotateCounterClockwise = () => {
-  pdfRotation.value = (pdfRotation.value - 90 + 360) % 360
-  console.log('🔄 Rotar:', pdfRotation.value)
-}
-
-const resetRotation = () => {
-  pdfRotation.value = 0
-  console.log('🔄 Rotación Reset:', pdfRotation.value)
-}
-
-// === Función para agregar marca de agua por debajo del contenido ===
-const addWatermark = (doc, text = 'CONFIDENCIAL') => {
+// Función para exportar a PDF
+const exportToPDF = async () => {
+  isExporting.value = true
   try {
-    const pageCount = doc.internal.getNumberOfPages()
-    
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i)
-      
-      // Configurar la marca de agua muy sutil para que esté por debajo
-      doc.setTextColor(240, 240, 240) // Gris muy claro
-      doc.setFontSize(50) // Tamaño grande
-      doc.setFont('helvetica', 'bold')
-      
-      // Calcular posición central
-      const pageWidth = doc.internal.pageSize.getWidth()
-      const pageHeight = doc.internal.pageSize.getHeight()
-      
-      // Posicionar en el centro de la página con rotación diagonal
-      const x = pageWidth / 2
-      const y = pageHeight / 2
-      
-      // Dibujar la marca de agua con transparencia
-      doc.text(text, x, y, { 
-        align: 'center',
-        angle: -45, // Rotación diagonal de 45 grados
-      })
-    }
-    
-    // Resetear color de texto para el contenido
-    doc.setTextColor(0, 0, 0)
-  } catch (error) {
-    console.warn('⚠️ No se pudo agregar marca de agua:', error.message)
-
-    // Continuar sin marca de agua si hay error
-  }
-}
-
-// === Función para generar código QR ===
-const generateQRCode = async (text, size = 100) => {
-  try {
-    // Crear un canvas temporal para generar el QR
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    
-    canvas.width = size
-    canvas.height = size
-    
-    // Fondo blanco
-    ctx.fillStyle = '#FFFFFF'
-    ctx.fillRect(0, 0, size, size)
-    
-    // Crear un QR Code más estructurado y legible
-    const modules = 21 // QR estándar 21x21
-    const moduleSize = Math.floor(size / modules)
-    const actualSize = modules * moduleSize
-    
-    // Centrar el QR en el canvas
-    const offsetX = Math.floor((size - actualSize) / 2)
-    const offsetY = Math.floor((size - actualSize) / 2)
-    
-    ctx.fillStyle = '#000000'
-    
-    // Crear matriz de datos basada en el texto
-    const matrix = []
-    let hash = 0
-    
-    // Generar hash más robusto del texto
-    for (let i = 0; i < text.length; i++) {
-      const char = text.charCodeAt(i)
-      
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
-    }
-    
-    // Inicializar matriz
-    for (let row = 0; row < modules; row++) {
-      matrix[row] = []
-      for (let col = 0; col < modules; col++) {
-        matrix[row][col] = false
-      }
-    }
-    
-    // Agregar patrones de posicionamiento (esquinas)
-    const addFinderPattern = (startRow, startCol) => {
-      // Patrón de 7x7 para las esquinas
-      for (let row = 0; row < 7; row++) {
-        for (let col = 0; col < 7; col++) {
-          const r = startRow + row
-          const c = startCol + col
-          
-          if (r >= 0 && r < modules && c >= 0 && c < modules &&
-
-              // Bordes externos e internos del patrón
-              (row === 0 || row === 6 || col === 0 || col === 6 || 
-                (row >= 2 && row <= 4 && col >= 2 && col <= 4))) {
-            matrix[r][c] = true
-          }
-        }
-      }
-    }
-    
-    // Agregar patrones de posicionamiento en las tres esquinas
-    addFinderPattern(0, 0) // Esquina superior izquierda
-    addFinderPattern(0, modules - 7) // Esquina superior derecha
-    addFinderPattern(modules - 7, 0) // Esquina inferior izquierda
-    
-    // Agregar separadores alrededor de los patrones de posicionamiento
-    const addSeparator = (startRow, startCol) => {
-      for (let row = -1; row <= 7; row++) {
-        for (let col = -1; col <= 7; col++) {
-          const r = startRow + row
-          const c = startCol + col
-          
-          if (r >= 0 && r < modules && c >= 0 && c < modules &&
-              (row === -1 || row === 7 || col === -1 || col === 7)) {
-            matrix[r][c] = false // Separador siempre blanco
-          }
-        }
-      }
-    }
-    
-    addSeparator(0, 0)
-    addSeparator(0, modules - 7)
-    addSeparator(modules - 7, 0)
-    
-    // Agregar líneas de tiempo (timing patterns)
-    for (let i = 8; i < modules - 8; i++) {
-      matrix[6][i] = (i % 2) === 0
-      matrix[i][6] = (i % 2) === 0
-    }
-    
-    // Rellenar áreas de datos con patrón basado en el hash del texto
-    for (let row = 0; row < modules; row++) {
-      for (let col = 0; col < modules; col++) {
-        // Saltar áreas ya ocupadas por patrones funcionales
-        if ((row < 9 && col < 9) || // Esquina superior izquierda
-            (row < 9 && col >= modules - 8) || // Esquina superior derecha
-            (row >= modules - 8 && col < 9) || // Esquina inferior izquierda
-            (row === 6) || (col === 6)) { // Líneas de tiempo
-          continue
-        }
-        
-        // Generar patrón de datos basado en posición y hash
-        const seed = hash + row * modules + col + (row * col)
-        const value1 = (seed % 3) === 0
-        const value2 = ((seed >> 1) % 5) === 1
-        const value3 = ((seed >> 2) % 7) === 3
-        
-        matrix[row][col] = value1 || value2 || value3
-      }
-    }
-    
-    // Dibujar la matriz en el canvas
-    for (let row = 0; row < modules; row++) {
-      for (let col = 0; col < modules; col++) {
-        if (matrix[row][col]) {
-          ctx.fillRect(
-            offsetX + col * moduleSize, 
-            offsetY + row * moduleSize, 
-            moduleSize, 
-            moduleSize,
-          )
-        }
-      }
-    }
-    
-    // Agregar un borde para mejor visualización
-    ctx.strokeStyle = '#CCCCCC'
-    ctx.lineWidth = 1
-    ctx.strokeRect(offsetX - 1, offsetY - 1, actualSize + 2, actualSize + 2)
-    
-    // Convertir canvas a data URL
-    return canvas.toDataURL('image/png')
-  } catch (error) {
-    console.warn('⚠️ No se pudo generar código QR:', error.message)
-    
-    return null
-  }
-}
-
-// === Función para agregar código QR al PDF ===
-const addQRCodeToPDF = async (doc, reportInfo) => {
-  try {
-    // Crear el texto para el QR solo con la fecha del reporte
-    const qrText = `Fecha: ${reportInfo.fecha}`
-
-    console.log('📱 Generando código QR con fecha:', qrText)
-    
-    // Generar el código QR
-    return await generateQRCode(qrText, 120)
-  } catch (error) {
-    console.warn('⚠️ Error generando código QR:', error.message)
-    
-    return null
-  }
-}
-
-// Función principal para generar PDF personalizado con jsPDF
-const generateCustomPDF = async () => {
-  try {
-    isExporting.value = true
-    pdfError.value = null
-    console.log('🚀 Iniciating generation of custom PDF...')
-
-    const doc = new jsPDF()
-    
-    console.log('✅ jsPDF created successfully')
-    
-    // Usar los datos filtrados actuales
+    // Usar los datos filtrados localmente en lugar de hacer nueva petición a la API
     const armasData = getFilteredDataForExport()
 
     if (!armasData || armasData.length === 0) {
       throw new Error('No hay datos para exportar con los filtros actuales')
     }
-    
-    // Agregar marca de agua ANTES del contenido (para que quede por debajo)
-    try {
-      console.log('💧 Adding watermark...')
-      addWatermark(doc, 'REPORTE DEL SISTEMA')
-      console.log('✅ Watermark added')
-    } catch (watermarkError) {
-      console.warn('⚠️ Error adding watermark:', watermarkError)
-      
-      // Continue without watermark
-    }
-    
-    // Generar PDF según la plantilla seleccionada
-    try {
-      switch (selectedTemplate.value) {
-      case 'detailed':
-        console.log('📊 Generating detailed PDF...')
-        generateDetailedPDF(doc, armasData)
-        break
-      case 'summary':
-        console.log('📋 Generating executive summary...')
-        generateSummaryPDF(doc, armasData)
-        break
-      case 'inventory':
-        console.log('📦 Generating inventory control...')
-        generateInventoryPDF(doc, armasData)
-        break
-      default:
-        console.log('📄 Generating standard PDF...')
-        generateStandardPDF(doc, armasData)
-      }
-      console.log('✅ PDF content generated successfully')
-    } catch (templateError) {
-      console.error('❌ Error generating PDF content:', templateError)
-      throw new Error(`Template error: ${templateError.message}`)
-    }
-    
-    // Agregar código QR con información del reporte
-    let qrDataUrl = null
-    
-    try {
-      const fechaActual = new Date()
 
-      const reportInfo = {
-        titulo: selectedTemplate.value === 'detailed' ? 'REPORTE DETALLADO DE ARMAS' :
-          selectedTemplate.value === 'summary' ? 'RESUMEN EJECUTIVO - INVENTARIO DE ARMAS' :
-            selectedTemplate.value === 'inventory' ? 'CONTROL DE INVENTARIO - ARMAS' :
-              'REPORTE DE ARMAS',
-        fecha: fechaActual.toLocaleDateString('es-ES', {
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        }),
-        hora: fechaActual.toLocaleTimeString('es-ES', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true,
-        }),
-      }
-      
-      console.log('📱 Generating QR code...')
-      qrDataUrl = await addQRCodeToPDF(doc, reportInfo)
-      
-      if (qrDataUrl) {
-        console.log('✅ QR code generated successfully')
-      }
-    } catch (qrError) {
-      console.warn('⚠️ Error generating QR code:', qrError)
-    }
-    
-    // Agregar numeración de páginas y QR al final
-    try {
-      console.log('📄 Adding page numbers and QR code...')
-      addPageNumber(doc, qrDataUrl)
-      console.log('✅ Page numbers and QR code added')
-    } catch (pageError) {
-      console.warn('⚠️ Error adding page numbers:', pageError)
-    }
-    
-    console.log('📄 PDF generated, creating multiple formats...')
-    
-    // Generar el PDF en diferentes formatos para mayor compatibilidad
-    const pdfOutput = doc.output('blob')
-    const pdfArrayBuffer = doc.output('arraybuffer')
-    
-    pdfBlob.value = pdfOutput
-    pdfData.value = new Uint8Array(pdfArrayBuffer)
-    
-    console.log('📄 Blob created:', pdfBlob.value)
-    console.log('📄 ArrayBuffer created:', pdfArrayBuffer)
-    
-    // Crear URL para el visor - probamos diferentes métodos
-    const pdfUrl = URL.createObjectURL(pdfOutput)
-    
-    // Método 1: Usar el blob URL
-    pdfSrc.value = pdfUrl
-    
-    console.log('🔗 PDF URL:', pdfSrc.value)
-    
-    // Resetear página actual y zoom inicial
-    currentPage.value = 1
-    pdfPages.value = 0
-    pdfZoom.value = 2.0 // Zoom inicial al 200%
-    
-    // Pequeña pausa para asegurar que el blob está listo
-    await new Promise(resolve => setTimeout(resolve, 200))
-    
-    showPdfViewer.value = true
-    isExporting.value = false
-    
-    console.log('✅ Custom PDF generated successfully and viewer opened')
+    // Create HTML content for PDF with basic styling
+    const htmlContent = createPDFContent(armasData)
+
+    // Create new window and write content
+    const printWindow = window.open('', '_blank')
+
+    printWindow.document.write(htmlContent)
+    printWindow.document.close()
+
+    // Show success message
+    showSuccessMessage(
+      '📄 PDF Listo para Descargar', 
+      `Vista previa con ${armasData.length} registros abierta (filtros aplicados). Use "Archivo → Imprimir → Guardar como PDF"`,
+    )
+
+    console.log('PDF window opened successfully')
     
   } catch (error) {
-    console.error('❌ Error generating PDF:', error)
-    console.error('❌ Stack trace:', error.stack)
-    pdfError.value = error.message
+    console.error('Error al exportar PDF:', error)
+    showErrorMessage('❌ Error de Exportación', `No se pudo exportar a PDF: ${error.message}`)
+  } finally {
     isExporting.value = false
-    
-    // Show error to user with more details
-    showErrorMessage('❌ Error de Generación PDF', `Error al generar PDF: ${error.message}`)
   }
-}
-
-// Función para exportar a PDF
-const exportToPDF = async () => {
-  // Abrir el diálogo de plantillas para el nuevo sistema de reportes
-  showTemplateDialog.value = true
 }
 
 // Función para descargar PDF directamente usando HTML como archivo
@@ -2113,9 +1703,6 @@ const printTable = async () => {
     // Eliminar CSS para evitar problemas de linting - usar solo HTML básico
     htmlParts.push('<style>')
     htmlParts.push('body { margin: 0; font-family: Arial, sans-serif; font-size: 11px; color: #333; }')
-    htmlParts.push('table { border-collapse: collapse; width: 100%; }')
-   
-    htmlParts.push('th { background-color: #f2f2f2; }')
     htmlParts.push('</style>')
     htmlParts.push('</head><body>')
     htmlParts.push('<table style="width:100%"')
@@ -2165,658 +1752,6 @@ const printTable = async () => {
     console.error('Error al imprimir:', error)
     showErrorMessage('❌ Error de Impresión', `No se pudo imprimir: ${error.message}`)
   }
-}
-
-// === Funciones de generación de plantillas PDF ===
-
-// Función auxiliar para agregar número de página y QR code
-// Función auxiliar para agregar número de página y QR code
-const addPageNumber = (doc, qrDataUrl = null) => {
-  const pageCount = doc.internal.getNumberOfPages()
-  
-  // Recorrer todas las páginas y agregar numeración
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i)
-    
-    // Configurar fuente para numeración
-    doc.setFont('times', 'normal')
-    doc.setFontSize(8)
-    doc.setTextColor(100, 100, 100)
-    
-    // Texto de fecha en la esquina inferior izquierda
-    doc.text(`Generado: ${new Date().toLocaleDateString('es-ES')}`, 20, 290)
-    
-    // Layout del pie de página derecho: "Página X de Y" + QR inmediatamente al lado
-    const pageText = `Página ${i} de ${pageCount}`
-    
-    if (qrDataUrl) {
-      // Con QR: Posicionar texto de página y QR juntos en la derecha
-      const qrSize = 20 // Tamaño del QR compacto
-      const rightMargin = 20
-      const spacing = 2 // Separación mínima entre texto y QR
-      
-      // Calcular posiciones para que queden alineados a la derecha
-      const pageTextWidth = doc.getTextWidth(pageText)
-      const totalWidth = pageTextWidth + spacing + qrSize
-      const startX = 210 - rightMargin - totalWidth
-      
-      // Posicionar texto de página
-      doc.text(pageText, startX, 290)
-      
-      // Posicionar QR inmediatamente al lado derecho del texto
-      const qrX = startX + pageTextWidth + spacing
-      const qrY = 275 // Centrado verticalmente con el texto
-      
-      try {
-        doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize)
-      } catch (qrError) {
-        console.warn('⚠️ Error agregando QR a página', i, ':', qrError)
-      }
-    } else {
-      // Sin QR, numeración en posición normal (derecha)
-      doc.text(pageText, 180, 290, { align: 'right' })
-    }
-  }
-  
-  // Restaurar color de texto
-  doc.setTextColor(0, 0, 0)
-}
-
-// Función auxiliar para generar tabla con bordes
-const generateTableWithBorders = (doc, startY, armasData, showHeader = true) => {
-  let yPosition = startY
-  const rowHeight = 8
-  const tableWidth = 170
-  const startX = 20
-  
-  // Definir anchos de columnas ajustados
-  const colWidths = [12, 22, 65, 25, 18, 28] // ID, Código, Descripción, Abreviatura, Posición, Estado
-  const colPositions = [startX]
-  
-  // Calcular posiciones de columnas
-  for (let i = 0; i < colWidths.length - 1; i++) {
-    colPositions.push(colPositions[i] + colWidths[i])
-  }
-  
-  // Función para dibujar línea horizontal
-  const drawHorizontalLine = y => {
-    doc.setLineWidth(0.2)
-    doc.line(startX, y, startX + tableWidth, y)
-  }
-  
-  // Función para dibujar líneas verticales
-  const drawVerticalLines = (y1, y2) => {
-    doc.setLineWidth(0.2)
-    colPositions.forEach(x => {
-      doc.line(x, y1, x, y2)
-    })
-    
-    // Línea final
-    doc.line(startX + tableWidth, y1, startX + tableWidth, y2)
-  }
-  
-  // Dibujar encabezados si se requiere
-  if (showHeader) {
-    // Fondo para encabezados
-    doc.setFillColor(200, 200, 200)
-    doc.rect(startX, yPosition - 6, tableWidth, rowHeight, 'F')
-    
-    // Línea superior de la tabla
-    drawHorizontalLine(yPosition - 6)
-    
-    // Encabezados
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.text('ID', colPositions[0] + 2, yPosition)
-    doc.text('CÓDIGO', colPositions[1] + 2, yPosition)
-    doc.text('DESCRIPCIÓN', colPositions[2] + 2, yPosition)
-    doc.text('ABREV.', colPositions[3] + 2, yPosition)
-    doc.text('POS.', colPositions[4] + 2, yPosition)
-    doc.text('ESTADO', colPositions[5] + 2, yPosition)
-    
-    // Líneas verticales del encabezado
-    drawVerticalLines(yPosition - 6, yPosition + 2)
-    
-    // Línea debajo del encabezado
-    drawHorizontalLine(yPosition + 2)
-    yPosition += 6
-  }
-  
-  // Datos de las armas
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
-  
-  armasData.forEach((arma, index) => {
-    // Verificar si necesitamos una nueva página
-    if (yPosition > 270) {
-      // Línea final de la tabla en la página actual
-      drawHorizontalLine(yPosition - 6)
-      
-      doc.addPage()
-      
-      // Agregar marca de agua a la nueva página
-      const currentPage = doc.internal.getCurrentPageInfo().pageNumber
-      
-      doc.setPage(currentPage)
-      
-      // Dibujar marca de agua en la nueva página
-      doc.setTextColor(240, 240, 240)
-      doc.setFontSize(50)
-      doc.setFont('helvetica', 'bold')
-      
-      const pageWidth = doc.internal.pageSize.getWidth()
-      const pageHeight = doc.internal.pageSize.getHeight()
-      const x = pageWidth / 2
-      const y = pageHeight / 2
-      
-      doc.text('REPORTE DEL SISTEMA', x, y, { 
-        align: 'center',
-        angle: -45,
-      })
-      
-      // Resetear configuración de texto
-      doc.setTextColor(0, 0, 0)
-      
-      yPosition = 30
-      
-      // Dibujar encabezados en la nueva página
-      if (showHeader) {
-        doc.setFillColor(200, 200, 200)
-        doc.rect(startX, yPosition - 6, tableWidth, rowHeight, 'F')
-        drawHorizontalLine(yPosition - 6)
-        
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(8)
-        doc.text('ID', colPositions[0] + 2, yPosition)
-        doc.text('CÓDIGO', colPositions[1] + 2, yPosition)
-        doc.text('DESCRIPCIÓN', colPositions[2] + 2, yPosition)
-        doc.text('ABREV.', colPositions[3] + 2, yPosition)
-        doc.text('POS.', colPositions[4] + 2, yPosition)
-        doc.text('ESTADO', colPositions[5] + 2, yPosition)
-        
-        drawVerticalLines(yPosition - 6, yPosition + 2)
-        drawHorizontalLine(yPosition + 2)
-        yPosition += 6
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(7)
-      }
-    }
-    
-    // Dibujar fila con alternancia de colores
-    if (index % 2 === 1) {
-      doc.setFillColor(248, 248, 248)
-      doc.rect(startX, yPosition - 6, tableWidth, rowHeight, 'F')
-    }
-    
-    // Texto de la fila con mejor alineación
-    doc.setTextColor(0, 0, 0)
-    doc.text(String(arma.id || ''), colPositions[0] + 1, yPosition)
-    doc.text(String(arma.arma_cod || '').substring(0, 10), colPositions[1] + 1, yPosition)
-    doc.text(String(arma.arma_descripcion || '').substring(0, 30), colPositions[2] + 1, yPosition)
-    doc.text(String(arma.arma_abreviacion || '').substring(0, 10), colPositions[3] + 1, yPosition)
-    doc.text(String(arma.arma_posicion || ''), colPositions[4] + 1, yPosition)
-    doc.text(String(arma.arma_estado || '').substring(0, 10), colPositions[5] + 1, yPosition)
-    
-    // Líneas verticales para esta fila
-    drawVerticalLines(yPosition - 6, yPosition + 2)
-    
-    yPosition += rowHeight
-  })
-  
-  // Línea final de la tabla
-  drawHorizontalLine(yPosition - 6)
-  
-  return yPosition
-}
-
-// Plantilla estándar
-const generateStandardPDF = (doc, armasData) => {
-  // Membrete oficial en la parte superior
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10)
-  
-  // Lado izquierdo - Membrete institucional
-  doc.text('COMANDO GENERAL DEL EJÉRCITO', 20, 15)
-  doc.text('DEPARTAMENTO I - PERSONAL', 25, 20)
-  doc.text('BOLIVIA', 45, 25)
-  
-  // Subrayar BOLIVIA
-  doc.line(45, 26, 45 + doc.getTextWidth('BOLIVIA'), 26)
-  
-  // Lado derecho - Fecha y hora
-  const fechaActual = new Date()
-  
-  const fechaFormateada = fechaActual.toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-  
-  const horaFormateada = fechaActual.toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  })
-  
-  doc.text(`Fecha: ${fechaFormateada}`, 140, 15)
-  doc.text(`Hora: ${horaFormateada}`, 140, 20)
-  
-  // Título principal centrado
-  doc.setFontSize(14)
-  doc.text('REPORTE DE ARMAS', 105, 45, { align: 'center' })
-  
-  // Generar tabla con bordes (pegada al título)
-  const finalY = generateTableWithBorders(doc, 55, armasData, true)
-}
-
-// Plantilla detallada con estadísticas
-const generateDetailedPDF = (doc, armasData) => {
-  // Membrete oficial en la parte superior
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10)
-  
-  // Lado izquierdo - Membrete institucional
-  doc.text('COMANDO GENERAL DEL EJÉRCITO', 20, 15)
-  doc.text('DEPARTAMENTO I - PERSONAL', 25, 20)
-  doc.text('BOLIVIA', 45, 25)
-  
-  // Subrayar BOLIVIA
-  doc.line(45, 26, 45 + doc.getTextWidth('BOLIVIA'), 26)
-  
-  // Lado derecho - Fecha y hora
-  const fechaActual = new Date()
-  
-  const fechaFormateada = fechaActual.toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-  
-  const horaFormateada = fechaActual.toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  })
-  
-  doc.text(`Fecha: ${fechaFormateada}`, 140, 15)
-  doc.text(`Hora: ${horaFormateada}`, 140, 20)
-  
-  // Título principal centrado
-  doc.setFontSize(14)
-  doc.text('REPORTE DETALLADO DE ARMAS', 105, 45, { align: 'center' })
-  
-  // Estadísticas
-  const stats = calculateStatsFromData(armasData)
-  let yPos = 60
-  
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(12)
-  doc.text('ESTADÍSTICAS GENERALES', 20, yPos)
-  yPos += 15
-  
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(11)
-  doc.text(`Total de armas: ${stats.total}`, 25, yPos)
-  yPos += 10
-  
-  // Evitar división por cero
-  const percentage = stats.total > 0 ? Math.round(stats.activas / stats.total * 100) : 0
-
-  doc.text(`Armas activas: ${stats.activas} (${percentage}%)`, 25, yPos)
-  yPos += 10
-  doc.text(`Inactivas: ${stats.inactivas}`, 25, yPos)
-  yPos += 10
-  doc.text(`Estado más común: ${stats.estadoMasComun}`, 25, yPos)
-  yPos += 20
-  
-  // Tabla detallada
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(14)
-  doc.text('LISTADO COMPLETO', 20, yPos)
-  yPos += 10
-  
-  // Generar tabla con bordes (menor separación)
-  const finalY = generateTableWithBorders(doc, yPos, armasData, true)
-}
-
-// Plantilla resumen ejecutivo
-const generateSummaryPDF = (doc, armasData) => {
-  // Membrete oficial en la parte superior
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10)
-  
-  // Lado izquierdo - Membrete institucional
-  doc.text('COMANDO GENERAL DEL EJÉRCITO', 20, 15)
-  doc.text('DEPARTAMENTO I - PERSONAL', 25, 20)
-  doc.text('BOLIVIA', 45, 25)
-  
-  // Subrayar BOLIVIA
-  doc.line(45, 26, 45 + doc.getTextWidth('BOLIVIA'), 26)
-  
-  // Lado derecho - Fecha y hora
-  const fechaActual = new Date()
-  
-  const fechaFormateada = fechaActual.toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-  
-  const horaFormateada = fechaActual.toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  })
-  
-  doc.text(`Fecha: ${fechaFormateada}`, 140, 15)
-  doc.text(`Hora: ${horaFormateada}`, 140, 20)
-
-  // Título principal centrado
-  doc.setFontSize(14)
-  doc.text('RESUMEN EJECUTIVO - INVENTARIO DE ARMAS', 105, 45, { align: 'center' })
-  
-  const stats = calculateStatsFromData(armasData)
-  let yPos = 60
-  
-  // Métricas clave en formato ejecutivo
-  doc.setFontSize(12)
-  doc.text('MÉTRICAS CLAVE', 20, yPos)
-  yPos += 15
-  
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(12)
-  
-  // Crear cajas con métricas
-  doc.setDrawColor(0, 100, 200)
-  doc.rect(20, yPos, 40, 25)
-  doc.text('TOTAL', 25, yPos + 10)
-  doc.setFontSize(16)
-  doc.text(stats.total.toString(), 30, yPos + 20)
-  
-  doc.setFontSize(12)
-  doc.rect(70, yPos, 40, 25)
-  doc.text('ACTIVAS', 75, yPos + 10)
-  doc.setFontSize(16)
-  doc.text(stats.activas.toString(), 80, yPos + 20)
-  
-  doc.setFontSize(12)
-  doc.rect(120, yPos, 50, 25)
-  doc.text('DISPONIBILIDAD', 125, yPos + 10)
-  doc.setFontSize(16)
-  doc.text(`${stats.total > 0 ? Math.round(stats.activas / stats.total * 100) : 0}%`, 135, yPos + 20)
-  
-  yPos += 40
-  
-  // Tabla resumida con bordes
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(14)
-  doc.text('LISTADO RESUMIDO', 20, yPos)
-  yPos += 10
-  
-  const finalY = generateTableWithBorders(doc, yPos, armasData, true)
-}
-
-// Plantilla control de inventario
-const generateInventoryPDF = (doc, armasData) => {
-  // Membrete oficial en la parte superior
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10)
-  
-  // Lado izquierdo - Membrete institucional
-  doc.text('COMANDO GENERAL DEL EJÉRCITO', 20, 15)
-  doc.text('DEPARTAMENTO I - PERSONAL', 25, 20)
-  doc.text('BOLIVIA', 45, 25)
-  
-  // Subrayar BOLIVIA
-  doc.line(45, 26, 45 + doc.getTextWidth('BOLIVIA'), 26)
-  
-  // Lado derecho - Fecha y hora
-  const fechaActual = new Date()
-  
-  const fechaFormateada = fechaActual.toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-  
-  const horaFormateada = fechaActual.toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  })
-  
-  doc.text(`Fecha: ${fechaFormateada}`, 140, 15)
-  doc.text(`Hora: ${horaFormateada}`, 140, 20)
-  
-  // Título principal centrado
-  doc.setFontSize(14)
-  doc.text('CONTROL DE INVENTARIO - ARMAS', 105, 45, { align: 'center' })
-  
-  let yPos = 60
-  
-  // Agrupar por estado
-  const armasPorEstado = armasData.reduce((acc, arma) => {
-    const estado = arma.arma_estado || 'Sin estado'
-    
-    if (!acc[estado]) acc[estado] = []
-    acc[estado].push(arma)
-    
-    return acc
-  }, {})
-  
-  // Mostrar resumen por estado
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(14)
-  doc.text('RESUMEN POR ESTADO', 20, yPos)
-  yPos += 20
-  
-  Object.entries(armasPorEstado).forEach(([estado, armas]) => {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(12)
-    doc.text(`${estado.toUpperCase()}: ${armas.length} armas`, 25, yPos)
-    yPos += 12
-  })
-  
-  yPos += 20
-  
-  // Tabla completa con bordes
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(14)
-  doc.text('INVENTARIO COMPLETO', 20, yPos)
-  yPos += 10
-  
-  const finalY = generateTableWithBorders(doc, yPos, armasData, true)
-}
-
-// Funciones auxiliares
-const calculateStatsFromData = armasData => {
-  const total = armasData.length
-  const activas = armasData.filter(a => a.arma_estado === 'Activo').length
-  const inactivas = armasData.filter(a => a.arma_estado === 'Inactivo').length
-  
-  // Validar que hay armas para evitar errores
-  if (total === 0) {
-    return {
-      total: 0,
-      activas: 0,
-      inactivas: 0,
-      estadoMasComun: 'N/A',
-    }
-  }
-  
-  // Estado más común
-  const estados = armasData.reduce((acc, arma) => {
-    const estado = arma.arma_estado || 'Sin estado'
-
-    acc[estado] = (acc[estado] || 0) + 1
-    
-    return acc
-  }, {})
-  
-  const estadoMasComun = Object.keys(estados).length > 0 
-    ? Object.keys(estados).reduce((a, b) => estados[a] > estados[b] ? a : b)
-    : 'N/A'
-  
-  return { total, activas, inactivas, estadoMasComun }
-}
-
-const generateStandardTable = (doc, startY, armasData) => {
-  // Reutilizar la lógica de tabla de la plantilla estándar
-  let yPosition = startY
-  
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(8)
-  
-  doc.text('ID', 20, yPosition)
-  doc.text('CÓDIGO', 35, yPosition)
-  doc.text('DESCRIPCIÓN', 70, yPosition)
-  doc.text('ABREVIATURA', 130, yPosition)
-  doc.text('ESTADO', 165, yPosition)
-  
-  doc.line(20, yPosition + 2, 190, yPosition + 2)
-  yPosition += 8
-  
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
-  
-  armasData.forEach(arma => {
-    if (yPosition > 270) {
-      doc.addPage()
-      yPosition = 30
-    }
-    
-    doc.text((arma.id || '').toString(), 20, yPosition)
-    doc.text(arma.arma_cod || '', 35, yPosition)
-    doc.text(arma.arma_descripcion || '', 70, yPosition)
-    doc.text(arma.arma_abreviacion || '', 130, yPosition)
-    doc.text(arma.arma_estado || '', 165, yPosition)
-    
-    yPosition += 8
-  })
-}
-
-const generateSummaryTable = (doc, startY, armasData) => {
-  let yPosition = startY
-  
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10)
-  doc.text('RESUMEN POR ESTADO', 20, yPosition)
-  yPosition += 15
-  
-  // Validar que hay armas
-  if (armasData.length === 0) {
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.text('No hay armas para mostrar', 25, yPosition)
-    
-    return
-  }
-  
-  // Agrupar por estado
-  const armasPorEstado = armasData.reduce((acc, arma) => {
-    const estado = arma.arma_estado || 'Sin estado'
-
-    if (!acc[estado]) acc[estado] = 0
-    acc[estado]++
-    
-    return acc
-  }, {})
-  
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  
-  Object.entries(armasPorEstado).forEach(([estado, cantidad]) => {
-    doc.text(`${estado}: ${cantidad} unidades`, 25, yPosition)
-    yPosition += 10
-  })
-}
-
-// Funciones adicionales para el visor PDF
-const downloadPDF = () => {
-  if (pdfBlob.value) {
-    const url = URL.createObjectURL(pdfBlob.value)
-    const a = document.createElement('a')
-
-    a.href = url
-    a.download = `reporte-armas-${new Date().toISOString().split('T')[0]}.pdf`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }
-}
-
-const openPdfInNewTab = () => {
-  if (pdfSrc.value) {
-    console.log('🔗 Abriendo PDF en nueva pestaña:', pdfSrc.value)
-    window.open(pdfSrc.value, '_blank')
-  } else {
-    console.warn('⚠️ No hay PDF para abrir')
-  }
-}
-
-const retryPdfLoad = () => {
-  console.log('🔄 Reintentando carga del PDF...')
-  pdfError.value = null
-  
-  // Esperar un momento y limpiar el estado
-  setTimeout(() => {
-    if (pdfSrc.value) {
-      // Forzar recarga del componente
-      const currentSrc = pdfSrc.value
-
-      pdfSrc.value = ''
-      
-      setTimeout(() => {
-        pdfSrc.value = currentSrc
-      }, 100)
-    }
-  }, 200)
-}
-
-const onPdfError = error => {
-  console.error('❌ Error en el visor PDF:', error)
-  console.error('📄 PDF Source:', pdfSrc.value)
-  
-  // Determinar el tipo de error y sugerir solución
-  let errorMessage = 'Error desconocido'
-  let suggestion = 'Prueba cambiando a modo Iframe'
-  
-  if (error?.message?.includes('CSP') || error?.message?.includes('frame-ancestors')) {
-    errorMessage = 'Error de Content Security Policy (CSP)'
-    suggestion = 'Este PDF no puede mostrarse en iframe. Usa "Nueva pestaña"'
-  } else if (error?.message?.includes('Failed to fetch')) {
-    errorMessage = 'Error de red al cargar PDF'
-    suggestion = 'Verifica tu conexión o usa "Nueva pestaña"'
-  } else if (error?.message?.includes('Invalid PDF')) {
-    errorMessage = 'PDF inválido o corrupto'
-    suggestion = 'Regenera el PDF'
-  } else {
-    errorMessage = error?.message || 'Error al cargar PDF'
-  }
-  
-  pdfError.value = `${errorMessage} - ${suggestion}`
-  
-  console.warn('💡 Sugerencia:', suggestion)
-}
-
-// Función general de exportación avanzada
-const handleExport = () => {
-  switch (exportFormat.value) {
-  case 'excel':
-    exportToExcel()
-    break
-  case 'csv':
-    exportToCSV()
-    break
-  case 'pdf':
-    generateCustomPDF()
-    break
-  default:
-    console.warn('Formato de exportación no soportado:', exportFormat.value)
-  }
-  
-  showExportDialog.value = false
 }
 
 // --- Funciones de importación ---
@@ -3255,23 +2190,28 @@ watch(armas, () => {
             <VList>
               <VListItem
                 prepend-icon="tabler-printer"
-                title="Imprimir"
+                :title="t('print')"
                 @click="printTable"
               />
               <VListItem
-                prepend-icon="tabler-file-type-pdf"
-                title="PDF Avanzado"
+                prepend-icon="tabler-file-text"
+                :title="t('exportToCSV')"
+                @click="exportToCSV"
+              />
+              <VListItem
+                prepend-icon="tabler-file-spreadsheet"
+                :title="t('exportToExcel')"
+                @click="exportToExcel"
+              />
+              <VListItem
+                prepend-icon="tabler-printer"
+                :title="t('printWithPDFFormat')"
                 @click="exportToPDF"
               />
               <VListItem
-                prepend-icon="tabler-braces"
-                title="Exportar a JSON"
-                @click="exportToJSON"
-              />
-              <VListItem
-                prepend-icon="tabler-file-analytics"
-                title="Reportes Avanzados"
-                @click="showExportDialog = true"
+                prepend-icon="tabler-download"
+                :title="t('downloadPDF')"
+                @click="downloadPDFDirect"
               />
             </VList>
           </VMenu>
@@ -4195,449 +3135,6 @@ watch(armas, () => {
             Continuar con Importación
           </VBtn>
         </div>
-      </VCardActions>
-    </VCard>
-  </VDialog>
-
-  <!-- === Diálogos del nuevo sistema de reportes PDF === -->
-  
-  <!-- Visor de PDF -->
-  <VDialog
-    v-model="showPdfViewer"
-    max-width="90vw"
-    max-height="90vh"
-  >
-    <VCard>
-      <VCardTitle class="d-flex align-center justify-space-between">
-        <span>📄 Visor PDF - vue-pdf-embed</span>
-        <div class="d-flex align-center gap-2">
-          <!-- Controles de zoom -->
-          <VBtnGroup 
-            variant="outlined" 
-            color="primary"
-          >
-            <VBtn
-              size="small"
-              color="primary"
-              :disabled="pdfZoom <= 0.5"
-              @click="zoomOut"
-            >
-              <VIcon 
-                icon="mdi-magnify-minus" 
-                size="large"
-              />
-              <span style=" font-size: 14px; font-weight: bold;margin-inline-start: 6px;">-</span>
-            </VBtn>
-            <VBtn
-              size="small"
-              min-width="70"
-              color="primary"
-              variant="outlined"
-              @click="resetZoom"
-            >
-              <span style="color: #1976d2; font-size: 14px; font-weight: bold;">
-                {{ Math.round(pdfZoom * 100) }}%
-              </span>
-            </VBtn>
-            <VBtn
-              size="small"
-              color="primary"
-              :disabled="pdfZoom >= 3.0"
-              @click="zoomIn"
-            >
-              <VIcon 
-                icon="mdi-magnify-plus" 
-                size="large"
-              />
-              <span style=" font-size: 14px; font-weight: bold;margin-inline-start: 6px;">+</span>
-            </VBtn>
-          </VBtnGroup>
-          
-          <!-- Controles de rotación -->
-          <VBtnGroup 
-            variant="outlined"
-            color="secondary"
-          >
-            <VBtn
-              size="small"
-              color="secondary"
-              @click="rotateCounterClockwise"
-            >
-              <VIcon 
-                icon="mdi-rotate-left" 
-                size="large"
-              />
-              <span style=" font-size: 16px; font-weight: bold;margin-inline-start: 6px;">↺</span>
-            </VBtn>
-            <VBtn
-              size="small"
-              color="secondary"
-              @click="rotateClockwise"
-            >
-              <VIcon 
-                icon="mdi-rotate-right" 
-                size="large"
-              />
-              <span style=" font-size: 16px; font-weight: bold;margin-inline-start: 6px;">↻</span>
-            </VBtn>
-          </VBtnGroup>
-          
-          <!-- Controles adicionales -->
-          <VBtn
-            v-if="pdfBlob"
-            color="success"
-            variant="elevated"
-            size="default"
-            @click="downloadPDF"
-          >
-            <template #prepend>
-              <VIcon 
-                icon="mdi-download" 
-                size="large"
-              />
-            </template>
-            <span style=" font-size: 14px;font-weight: bold;">Descargar</span>
-          </VBtn>
-          <VBtn
-            v-if="pdfSrc"
-            color="info"
-            variant="elevated"
-            size="default"
-            @click="openPdfInNewTab"
-          >
-            <template #prepend>
-              <VIcon 
-                icon="mdi-open-in-new" 
-                size="large"
-              />
-            </template>
-            <span style=" font-size: 14px;font-weight: bold;">Nueva pestaña</span>
-          </VBtn>
-          <VBtn
-            v-if="pdfSrc"
-            :color="useIframe ? 'warning' : 'secondary'"
-            variant="elevated"
-            size="default"
-            @click="useIframe = !useIframe"
-          >
-            <template #prepend>
-              <VIcon 
-                icon="mdi-swap-horizontal" 
-                size="large"
-              />
-            </template>
-            <span style=" font-size: 14px;font-weight: bold;">
-              {{ useIframe ? 'VuePdfEmbed' : 'Iframe' }}
-            </span>
-          </VBtn>
-          <VBtn
-            variant="elevated"
-            color="grey-darken-1"
-            size="default"
-            @click="showPdfViewer = false"
-          >
-            <VIcon 
-              icon="mdi-close" 
-              size="x-large"
-            />
-          </VBtn>
-        </div>
-      </VCardTitle>
-      <VCardText style="block-size: 70vh;">
-        <!-- Debug info -->
-        <div 
-          v-if="pdfSrc" 
-          class="mb-2 pa-2 bg-grey-lighten-4 rounded text-caption"
-        >
-          <div>🔗 PDF URL: {{ pdfSrc.substring(0, 50) }}...</div>
-          <div>📄 Páginas: {{ pdfPages || 'Detectando...' }}</div>
-          <div>📊 Blob size: {{ pdfBlob ? Math.round(pdfBlob.size / 1024) + ' KB' : 'N/A' }}</div>
-        </div>
-        
-        <!-- Error message -->
-        <VAlert
-          v-if="pdfError"
-          type="error"
-          class="mb-4"
-          closable
-          @click:close="pdfError = null"
-        >
-          <strong>Error del PDF:</strong> {{ pdfError }}
-        </VAlert>
-        
-        <!-- Visor PDF Principal -->
-        <div
-          v-if="pdfSrc && !pdfError"
-          style=" display: flex;overflow: auto; align-items: flex-start; justify-content: center; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background: #f5f5f5; block-size: calc(100% - 80px); inline-size: 100%;"
-        >
-          <!-- Opción 1: VuePdfEmbed (por defecto) -->
-          <div 
-            v-if="!useIframe"
-            style="display: flex; justify-content: center; inline-size: 100%;"
-          >
-            <VuePdfEmbed 
-              :source="pdfSrc"
-              :page="currentPage"
-              :width="Math.round(600 * pdfZoom)"
-              :rotation="pdfRotation"
-              style=" border-radius: 8px; background: white;box-shadow: 0 4px 12px rgba(0, 0, 0, 15%);"
-              @loading="() => { 
-                console.log('🔄 VuePdfEmbed cargando...'); 
-              }"
-              @loaded="onPdfLoaded"
-              @rendered="() => { 
-                console.log('✅ VuePdfEmbed página renderizada'); 
-              }"
-              @loading-failed="(error) => {
-                console.error('❌ Error en VuePdfEmbed:', error);
-                pdfError = 'Error en VuePdfEmbed - Prueba cambiando a Iframe';
-              }"
-            />
-          </div>
-          
-          <!-- Opción 2: Iframe (respaldo) -->
-          <div
-            v-else
-            style="display: flex; flex-direction: column; align-items: center; block-size: 100%; inline-size: 100%;"
-          >
-            <div class="text-center mb-2 text-caption">
-              Modo Iframe - Algunas funciones pueden estar limitadas
-            </div>
-            <iframe
-              :src="pdfSrc"
-              :style="`border: none; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); background: white; inline-size: ${Math.round(600 * pdfZoom)}px; block-size: ${Math.round(800 * pdfZoom)}px; max-inline-size: 100%; max-block-size: calc(100% - 30px);`"
-              title="PDF Viewer - Iframe Mode"
-              @load="() => {
-                pdfError = null;
-                console.log('✅ Iframe cargado exitosamente');
-              }"
-              @error="(e) => {
-                console.error('❌ Error en iframe:', e);
-                pdfError = 'Error de CSP o URL bloqueada - Usa Nueva Pestaña';
-              }"
-            />
-          </div>
-        </div>
-        
-        <!-- Fallback: Iframe si VuePDF falla -->
-        <div
-          v-else-if="pdfSrc && pdfError"
-          style="block-size: calc(100% - 80px); inline-size: 100%;"
-        >
-          <div class="text-center mb-2">
-            <VBtn
-              color="info"
-              prepend-icon="mdi-refresh"
-              @click="retryPdfLoad"
-            >
-              Reintentar con iframe
-            </VBtn>
-          </div>
-          <iframe
-            :src="pdfSrc"
-            style=" border: 1px solid #ddd; border-radius: 8px; block-size: 100%;inline-size: 100%;"
-            title="PDF Viewer"
-          />
-        </div>
-        
-        <!-- Loading state -->
-        <div
-          v-else
-          class="d-flex align-center justify-center"
-          style="block-size: 100%;"
-        >
-          <VProgressCircular
-            indeterminate
-            color="primary"
-            size="50"
-          />
-          <span style="margin-inline-start: 16px;">Generando PDF...</span>
-        </div>
-        
-        <!-- Controles de navegación si hay múltiples páginas -->
-        <div 
-          v-if="pdfPages > 1" 
-          class="d-flex align-center justify-center mt-2 gap-2"
-        >
-          <VBtn
-            size="default"
-            color="primary"
-            variant="elevated"
-            :disabled="currentPage <= 1"
-            @click="currentPage--"
-          >
-            <VIcon 
-              icon="mdi-chevron-left" 
-              size="large"
-            />
-          </VBtn>
-          <VChip 
-            variant="elevated"
-            color="primary"
-            size="large"
-          >
-            <span style="font-size: 16px; font-weight: bold;">
-              {{ currentPage }} / {{ pdfPages }}
-            </span>
-          </VChip>
-          <VBtn
-            size="default"
-            color="primary"
-            variant="elevated"
-            :disabled="currentPage >= pdfPages"
-            @click="currentPage++"
-          >
-            <VIcon 
-              icon="mdi-chevron-right" 
-              size="large"
-            />
-          </VBtn>
-        </div>
-      </VCardText>
-    </VCard>
-  </VDialog>
-
-  <!-- Diálogo de selección de plantilla PDF -->
-  <VDialog
-    v-model="showTemplateDialog"
-    max-width="600"
-  >
-    <VCard>
-      <VCardTitle>
-        📄 Seleccionar Plantilla de PDF
-      </VCardTitle>
-      <VCardText>
-        <VRadioGroup v-model="selectedTemplate">
-          <VRadio
-            v-for="template in templates"
-            :key="template.value"
-            :value="template.value"
-          >
-            <template #label>
-              <div>
-                <div class="text-h6">
-                  {{ template.title }}
-                </div>
-                <div class="text-body-2 text-medium-emphasis">
-                  {{ template.description }}
-                </div>
-              </div>
-            </template>
-          </VRadio>
-        </VRadioGroup>
-      </VCardText>
-      <VCardActions>
-        <VSpacer />
-        <VBtn
-          variant="text"
-          @click="showTemplateDialog = false"
-        >
-          Cancelar
-        </VBtn>
-        <VBtn
-          color="primary"
-          :loading="isExporting"
-          @click="generateCustomPDF(); showTemplateDialog = false"
-        >
-          Generar PDF
-        </VBtn>
-      </VCardActions>
-    </VCard>
-  </VDialog>
-
-  <!-- Diálogo de exportación avanzada -->
-  <VDialog
-    v-model="showExportDialog"
-    max-width="500"
-  >
-    <VCard>
-      <VCardTitle>
-        📊 Exportar Datos Avanzado
-      </VCardTitle>
-      <VCardText>
-        <div class="mb-4">
-          <div class="text-body-1 mb-2">
-            Se exportarán los registros con filtros aplicados
-          </div>
-        </div>
-        
-        <VRadioGroup v-model="exportFormat">
-          <VRadio value="pdf">
-            <template #label>
-              <div class="d-flex align-center">
-                <VIcon
-                  icon="mdi-file-pdf-box"
-                  color="red"
-                  class="me-2"
-                />
-                <div>
-                  <div class="text-subtitle-1">
-                    PDF
-                  </div>
-                  <div class="text-body-2 text-medium-emphasis">
-                    Documento con formato y marca de agua
-                  </div>
-                </div>
-              </div>
-            </template>
-          </VRadio>
-          
-          <VRadio value="excel">
-            <template #label>
-              <div class="d-flex align-center">
-                <VIcon
-                  icon="mdi-microsoft-excel"
-                  color="green"
-                  class="me-2"
-                />
-                <div>
-                  <div class="text-subtitle-1">
-                    Excel (.xlsx)
-                  </div>
-                  <div class="text-body-2 text-medium-emphasis">
-                    Hoja de cálculo para análisis
-                  </div>
-                </div>
-              </div>
-            </template>
-          </VRadio>
-          
-          <VRadio value="csv">
-            <template #label>
-              <div class="d-flex align-center">
-                <VIcon
-                  icon="mdi-file-delimited"
-                  color="blue"
-                  class="me-2"
-                />
-                <div>
-                  <div class="text-subtitle-1">
-                    CSV
-                  </div>
-                  <div class="text-body-2 text-medium-emphasis">
-                    Archivo de texto separado por comas
-                  </div>
-                </div>
-              </div>
-            </template>
-          </VRadio>
-        </VRadioGroup>
-      </VCardText>
-      <VCardActions>
-        <VSpacer />
-        <VBtn
-          variant="text"
-          @click="showExportDialog = false"
-        >
-          Cancelar
-        </VBtn>
-        <VBtn
-          color="primary"
-          prepend-icon="mdi-export"
-          @click="handleExport"
-        >
-          Exportar
-        </VBtn>
       </VCardActions>
     </VCard>
   </VDialog>

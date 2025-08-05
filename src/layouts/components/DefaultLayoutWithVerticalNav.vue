@@ -1,6 +1,8 @@
 <script setup>
 import navItems from '@/navigation/vertical'
 import { themeConfig } from '@themeConfig'
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 // Components
 import Footer from '@/layouts/components/Footer.vue'
@@ -13,10 +15,40 @@ import NavBarI18n from '@core/components/I18n.vue'
 
 // @layouts plugin
 import { VerticalNavLayout } from '@layouts'
+
+// i18n
+const { t } = useI18n()
+
+// Función para traducir recursivamente los items de navegación
+const translateNavItems = items => {
+  return items.map(item => {
+    const translatedItem = { ...item }
+    
+    // Traducir heading si existe
+    if (item.heading && typeof item.heading === 'string') {
+      translatedItem.heading = t(item.heading)
+    }
+    
+    // Traducir title si existe
+    if (item.title && typeof item.title === 'string') {
+      translatedItem.title = t(item.title)
+    }
+    
+    // Traducir children recursivamente si existen
+    if (item.children && Array.isArray(item.children)) {
+      translatedItem.children = translateNavItems(item.children)
+    }
+    
+    return translatedItem
+  })
+}
+
+// Computed reactivo para los items de navegación traducidos
+const translatedNavItems = computed(() => translateNavItems(navItems))
 </script>
 
 <template>
-  <VerticalNavLayout :nav-items="navItems">
+  <VerticalNavLayout :nav-items="translatedNavItems">
     <!-- 👉 navbar -->
     <template #navbar="{ toggleVerticalOverlayNavActive }">
       <div class="d-flex h-100 align-center">

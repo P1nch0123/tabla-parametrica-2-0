@@ -1,12 +1,13 @@
+// Usando keys de traducción que se procesarán por el componente de navegación
 export default [
-  { heading: 'Parametrics' },
+  { heading: 'parametrics' },
   {
-    title: 'Parametrics',
+    title: 'parametrics',
     icon: { icon: 'tabler-id' },
     children: [
-      { title: 'Weapons', to: 'pages-parametricas-armas-list' },
+      { title: 'weapons', to: 'pages-parametricas-armas-list' },
       
-      // { title: 'Units', to: 'pages-parametricas-unidades-list' }, // Comentado hasta crear la página
+      // { title: 'units', to: 'pages-parametricas-unidades-list' }, // Comentado hasta crear la página
     ],
   },
 ]

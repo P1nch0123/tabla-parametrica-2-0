@@ -1,6 +1,9 @@
-import { createApp } from 'vue'
 import App from '@/App.vue'
 import { registerPlugins } from '@core/utils/plugins'
+import { createApp } from 'vue'
+
+// Configuración de PDF.js para @tato30/vue-pdf
+import '@/plugins/pdf'
 
 // Styles
 import '@core/scss/template/index.scss'

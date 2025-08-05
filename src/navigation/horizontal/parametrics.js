@@ -1,9 +1,9 @@
 export default [
   {
-    title: 'Parametrics',
+    title: 'parametrics',
     icon: { icon: 'tabler-layout-grid' },
     children: [
-      { title: 'Weapons', to: 'pages-parametricas-armas-list' },
+      { title: 'weapons', to: 'pages-parametricas-armas-list' },
     ],
   },
 ]
